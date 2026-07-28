@@ -979,6 +979,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         *{box-sizing:border-box;}
         input:focus,textarea:focus,select:focus{outline:1px solid #6366f1;}
