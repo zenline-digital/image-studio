@@ -288,6 +288,8 @@ export default function App() {
       setGallery(prev => [{ ...record, id }, ...prev]);
     } catch(e) { console.log("Gallery save failed:", e); }
   }
+
+  const [imagesGenerated,setImagesGenerated] = useState(()=>{
     try{return parseInt(localStorage.getItem("imageStudio_count")||"0");}catch{return 0;}
   });
   const [showKeyModal,setShowKeyModal] = useState(false);
