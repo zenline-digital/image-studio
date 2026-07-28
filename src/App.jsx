@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"; 
+import { useState, useRef } from "react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PRODUCT_TYPES = [
@@ -113,31 +113,24 @@ const C = {
 
 // ─── Gemini Image Generation ──────────────────────────────────────────────────
 async function generateImage(prompt, apiKey) {
-  // Try Imagen 3 first (highest quality)
-  try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1, aspectRatio: "3:4" }
-        })
-      }
-    );
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-    if (d.predictions?.[0]?.bytesBase64Encoded) {
-      return { data: d.predictions[0].bytesBase64Encoded, mime: "image/png" };
+  // Use Imagen 3 (billing enabled — best quality, no daily limit)
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instances: [{ prompt }],
+        parameters: { sampleCount: 1, aspectRatio: "3:4" }
+      })
     }
-  } catch (e) {
-    if (e.message?.includes("quota") || e.message?.includes("429")) throw new Error("QUOTA");
-    if (e.message?.includes("401") || e.message?.includes("403") || e.message?.includes("API key")) throw new Error("AUTH");
-    // Fall through to backup model
+  );
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message);
+  if (d.predictions?.[0]?.bytesBase64Encoded) {
+    return { data: d.predictions[0].bytesBase64Encoded, mime: "image/png" };
   }
-
-  // Fallback: Gemini Flash image generation
+  // Fallback to Gemini Flash image generation
   const r2 = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,
     {
@@ -150,18 +143,12 @@ async function generateImage(prompt, apiKey) {
     }
   );
   const d2 = await r2.json();
-  if (d2.error) {
-    if (d2.error.code === 429) throw new Error("QUOTA");
-    if (d2.error.code === 401 || d2.error.code === 403) throw new Error("AUTH");
-    throw new Error(d2.error.message);
-  }
+  if (d2.error) throw new Error(d2.error.message);
   const parts = d2.candidates?.[0]?.content?.parts || [];
   for (const part of parts) {
-    if (part.inlineData?.data) {
-      return { data: part.inlineData.data, mime: part.inlineData.mimeType };
-    }
+    if (part.inlineData?.data) return { data: part.inlineData.data, mime: part.inlineData.mimeType };
   }
-  throw new Error("No image returned from Gemini");
+  throw new Error("No image returned — check your API key and billing");
 }
 
 // ─── Canvas Processing ────────────────────────────────────────────────────────
@@ -208,20 +195,17 @@ function buildPrompt(product, pose) {
 export default function App() {
   const [product, setProduct] = useState({ name:"", type:"T-Shirt", gender:"Unisex", color:"", brand:"Actiwear", designNotes:"" });
   const [slots, setSlots] = useState(DEFAULT_SLOTS.map(s => ({ ...s, status:"idle", result:null, error:null })));
-  const [apiKeys, setApiKeys] = useState(["", "", ""]);
-  const [activeKeyIdx, setActiveKeyIdx] = useState(0);
+  const [apiKey, setApiKey] = useState("");
   const [generating, setGenerating] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [showPosePicker, setShowPosePicker] = useState(null); // slot index
+  const [showPosePicker, setShowPosePicker] = useState(null);
   const [poseSearch, setPoseSearch] = useState("");
   const [poseCat, setPoseCat] = useState("All");
   const [refs, setRefs] = useState({ front:null, back:null, side:null, logo:null });
   const stopRef = useRef(false);
 
-  const validKeys = apiKeys.filter(k => k.length > 20);
   const doneCount = slots.filter(s => s.status === "done").length;
-  const errorCount = slots.filter(s => s.status === "error").length;
   const progress = Math.round((doneCount / 8) * 100);
 
   function updateSlot(i, patch) {
@@ -239,67 +223,37 @@ export default function App() {
     }));
   }
 
-  function getNextKey() {
-    for (let i = 0; i < validKeys.length; i++) {
-      const idx = (activeKeyIdx + i) % validKeys.length;
-      return { key: validKeys[idx], idx };
-    }
-    return null;
-  }
-
   async function generateAll() {
-    if (validKeys.length === 0) { setShowKeyModal(true); return; }
+    if (!apiKey || apiKey.length < 20) { setShowKeyModal(true); return; }
     if (!product.name.trim()) { alert("Enter a product name first"); return; }
     stopRef.current = false;
     setStopped(false);
     setGenerating(true);
     setSlots(prev => prev.map(s => ({ ...s, status:"pending", result:null, error:null })));
 
-    let keyIdx = activeKeyIdx;
-
     for (let i = 0; i < slots.length; i++) {
       if (stopRef.current) { updateSlot(i, { status:"idle" }); continue; }
-
       updateSlot(i, { status:"generating" });
       const pose = ALL_POSES.find(p => p.id === slots[i].poseId) || ALL_POSES[0];
       const prompt = buildPrompt(product, pose);
-
-      let success = false;
-      let attempts = 0;
-
-      while (!success && attempts < validKeys.length * 2) {
-        const key = validKeys[keyIdx % validKeys.length];
-        try {
-          const { data, mime } = await generateImage(prompt, key);
-          const processed = await processImage(data, mime);
-          updateSlot(i, { status:"done", result:processed });
-          success = true;
-        } catch (e) {
-          if (e.message === "QUOTA" || e.message === "AUTH") {
-            keyIdx = (keyIdx + 1) % validKeys.length;
-            setActiveKeyIdx(keyIdx);
-          } else {
-            updateSlot(i, { status:"error", error: e.message });
-            break;
-          }
-        }
-        attempts++;
-      }
-      if (!success && attempts >= validKeys.length * 2) {
-        updateSlot(i, { status:"error", error:"All API keys exhausted" });
+      try {
+        const { data, mime } = await generateImage(prompt, apiKey);
+        const processed = await processImage(data, mime);
+        updateSlot(i, { status:"done", result:processed });
+      } catch (e) {
+        updateSlot(i, { status:"error", error: e.message });
       }
     }
     setGenerating(false);
   }
 
   async function regenerateSlot(i) {
-    if (validKeys.length === 0) { setShowKeyModal(true); return; }
+    if (!apiKey || apiKey.length < 20) { setShowKeyModal(true); return; }
     updateSlot(i, { status:"generating", error:null });
     const pose = ALL_POSES.find(p => p.id === slots[i].poseId) || ALL_POSES[0];
     const prompt = buildPrompt(product, pose);
     try {
-      const key = validKeys[activeKeyIdx % validKeys.length];
-      const { data, mime } = await generateImage(prompt, key);
+      const { data, mime } = await generateImage(prompt, apiKey);
       const processed = await processImage(data, mime);
       updateSlot(i, { status:"done", result:processed });
     } catch (e) {
@@ -369,7 +323,7 @@ export default function App() {
         </div>
         <div style={{ display:"flex", gap:10 }}>
           <button onClick={() => setShowKeyModal(true)} style={{ ...S.btn(C.border, true), fontSize:12, color:C.muted }}>
-            🔑 API Keys ({validKeys.length}/3)
+            🔑 {apiKey.length > 20 ? "✓ API Key Set" : "Add API Key"}
           </button>
         </div>
       </div>
@@ -445,8 +399,7 @@ export default function App() {
           <div style={S.card}>
             <div style={{ display:"flex", gap:10, marginBottom:14 }}>
               <button onClick={generateAll} disabled={generating} style={{ ...S.btn(), flex:1, fontSize:14, fontWeight:700 }}>
-                {generating ? `⏳ Generating... ${doneCount}/8` : "⚡ Generate 8 Images"}
-              </button>
+                {generating ? `⏳ Generating... ${doneCount}/8` : "⚡ Generate 8 Images"}              </button>
               {generating && (
                 <button onClick={() => { stopRef.current = true; setStopped(true); }} style={S.btn(C.danger, true)}>■ Stop</button>
               )}
@@ -557,25 +510,18 @@ export default function App() {
       {showKeyModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}
           onClick={e => e.target===e.currentTarget && setShowKeyModal(false)}>
-          <div style={{ ...S.card, width:480, maxWidth:"90vw" }}>
-            <div style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Gemini API Keys</div>
+          <div style={{ ...S.card, width:460, maxWidth:"90vw" }}>
+            <div style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Gemini API Key</div>
             <div style={{ fontSize:12, color:C.muted, marginBottom:20, lineHeight:1.6 }}>
-              Add up to 3 API keys for automatic rotation. Each key gives ~1,500 images/day free.<br/>
-              Get keys at <span style={{ color:C.purple }}>aistudio.google.com</span> → API Keys → Create API key
+              Uses Imagen 3 — pay per image (~$0.03/image). No daily limit since billing is enabled.<br/>
+              Get key at <span style={{ color:C.purple }}>aistudio.google.com</span> → API Keys → Create API key
             </div>
-            {[0,1,2].map(idx => (
-              <div key={idx} style={{ marginBottom:14 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                  <label style={{ ...S.label, margin:0 }}>Key {idx+1}</label>
-                  {apiKeys[idx].length > 20 && <span style={{ fontSize:11, color:C.teal }}>✓ Valid</span>}
-                </div>
-                <input type="password" placeholder="AIza..." value={apiKeys[idx]}
-                  onChange={e => setApiKeys(prev => prev.map((k,i) => i===idx ? e.target.value : k))}
-                  style={S.input} />
-              </div>
-            ))}
-            <div style={{ padding:"12px 14px", background:`${C.teal}10`, border:`1px solid ${C.teal}30`, borderRadius:8, fontSize:12, color:C.teal, marginBottom:16 }}>
-              ✓ {validKeys.length} key{validKeys.length!==1?"s":""} configured · ~{validKeys.length*1500} images/day capacity
+            <label style={S.label}>Your Gemini API Key</label>
+            <input type="password" placeholder="AIza..." value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              style={{ ...S.input, marginBottom:16 }} />
+            <div style={{ padding:"10px 14px", background: apiKey.length > 20 ? `${C.teal}10` : `${C.amber}10`, border:`1px solid ${apiKey.length > 20 ? C.teal : C.amber}30`, borderRadius:8, fontSize:12, color: apiKey.length > 20 ? C.teal : C.amber, marginBottom:16 }}>
+              {apiKey.length > 20 ? "✓ Key entered — ready to generate" : "⚠ Enter your API key to enable image generation"}
             </div>
             <button onClick={() => setShowKeyModal(false)} style={{ ...S.btn(), width:"100%" }}>Save & Close</button>
           </div>
