@@ -92,22 +92,16 @@ const DEFAULT_SLOTS = [
 const C = {bg:"#0D0D14",surf:"#13131E",card:"#1A1A28",border:"#252538",purple:"#6366f1",teal:"#10b981",amber:"#f59e0b",danger:"#ef4444",text:"#F0F0F8",muted:"#6B7090"};
 
 async function generateImage(prompt, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,{
+  // Primary: Gemini Flash Lite image (confirmed working)
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
     method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({instances:[{prompt}],parameters:{sampleCount:1,aspectRatio:"3:4"}})
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
-  if(d.predictions?.[0]?.bytesBase64Encoded) return {data:d.predictions[0].bytesBase64Encoded,mime:"image/png"};
-  // Fallback
-  const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
-  });
-  const d2 = await r2.json();
-  if(d2.error) throw new Error(d2.error.message);
-  for(const part of d2.candidates?.[0]?.content?.parts||[]) if(part.inlineData?.data) return {data:part.inlineData.data,mime:part.inlineData.mimeType};
-  throw new Error("No image returned — check API key and billing");
+  for(const part of d.candidates?.[0]?.content?.parts||[])
+    if(part.inlineData?.data) return {data:part.inlineData.data,mime:part.inlineData.mimeType};
+  throw new Error("No image returned — check your API key and billing");
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
@@ -159,6 +153,8 @@ export default function App() {
   const [slots,setSlots] = useState(DEFAULT_SLOTS.map(s=>({...s,status:"idle",result:null,error:null})));
   const [apiKey,setApiKey] = useState("");
   const [generating,setGenerating] = useState(false);
+  const [sampleDone,setSampleDone] = useState(false);
+  const [sampleFeedback,setSampleFeedback] = useState("");
   const [showKeyModal,setShowKeyModal] = useState(false);
   const [showPosePicker,setShowPosePicker] = useState(null);
   const [poseSearch,setPoseSearch] = useState("");
@@ -176,6 +172,8 @@ export default function App() {
   const progress = Math.round((doneCount/8)*100);
 
   function upd(i,patch){setSlots(p=>p.map((s,idx)=>idx===i?{...s,...patch}:s));}
+
+  function resetSample(){setSampleDone(false);setSampleFeedback("");}
 
   function randomizeVaried(){
     const pool=ALL_POSES.filter(p=>!["Standard","Flat Lay","Detail","Back Views"].includes(p.category));
@@ -235,13 +233,46 @@ export default function App() {
     reader.readAsDataURL(file);
   }
 
+  async function generateSample(){
+    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    if(!product.name.trim()){alert("Enter a product name first");return;}
+    stopRef.current=false;
+    setSampleDone(false);
+    setSampleFeedback("");
+    setGenerating(true);
+    setSlots(p=>p.map((s,i)=>i===0?{...s,status:"generating",result:null,error:null}:{...s,status:"idle",result:null,error:null}));
+    const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
+    try{
+      const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
+      upd(0,{status:"done",result:await processImage(data,mime)});
+      setSampleDone(true);
+    }catch(e){upd(0,{status:"error",error:e.message});}
+    setGenerating(false);
+  }
+
+  async function regenSampleWithFeedback(){
+    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    setSampleDone(false);
+    setGenerating(true);
+    upd(0,{status:"generating",result:null,error:null});
+    const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
+    const feedbackNote=sampleFeedback?`\nIMPORTANT CHANGES REQUESTED: ${sampleFeedback}`:"";
+    try{
+      const {data,mime}=await generateImage(buildPrompt(product,pose)+feedbackNote,apiKey);
+      upd(0,{status:"done",result:await processImage(data,mime)});
+      setSampleDone(true);
+    }catch(e){upd(0,{status:"error",error:e.message});}
+    setGenerating(false);
+  }
+
   async function generateAll(){
     if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
     if(!product.name.trim()){alert("Enter a product name first");return;}
     stopRef.current=false;
     setGenerating(true);
-    setSlots(p=>p.map(s=>({...s,status:"pending",result:null,error:null})));
-    for(let i=0;i<slots.length;i++){
+    // Keep slot 0 as-is (already generated), generate 1-7
+    setSlots(p=>p.map((s,i)=>i===0?s:{...s,status:"pending",result:null,error:null}));
+    for(let i=1;i<slots.length;i++){
       if(stopRef.current){upd(i,{status:"idle"});continue;}
       upd(i,{status:"generating"});
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
@@ -475,26 +506,60 @@ export default function App() {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div>
                 <div style={{fontWeight:600,marginBottom:2}}>Generate 8 images</div>
-                <div style={{fontSize:11,color:C.muted}}>{apiKey.length>20?"1 key configured · Imagen 3 active":"Add API key to enable generation"}</div>
+                <div style={{fontSize:11,color:C.muted}}>{apiKey.length>20?"1 key configured · Gemini Flash Image":"Add API key to enable generation"}</div>
               </div>
-              {doneCount>0&&<button onClick={downloadAll} style={btn(C.teal)}>⬇ Download ZIP ({doneCount})</button>}
+              {doneCount>0&&<button onClick={downloadAll} style={btn(C.teal)}>⬇ ZIP ({doneCount})</button>}
             </div>
-            <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateAll}
-              style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:14,fontWeight:700,padding:"12px",marginBottom:generating?12:0}}>
-              {generating?`■ Stop (${doneCount}/8 done)`:`⚡ Generate image 1 of 8`}
-            </button>
-            {generating&&(
-              <div style={{marginTop:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                  <span style={{fontSize:11,color:C.muted}}>Progress</span>
-                  <span style={{fontSize:11}}>{progress}%</span>
+
+            {/* Step 1 — Sample */}
+            {!sampleDone&&!slots[0].result&&(
+              <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateSample}
+                style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
+                {generating?"■ Stop":"⚡ Generate Sample (1 of 8) →"}
+              </button>
+            )}
+
+            {/* Sample done — feedback + approve */}
+            {(sampleDone||slots[0].result)&&!generating&&(
+              <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:8,padding:12,marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:8}}>✓ Sample ready — review slot #1 (Hero Front)</div>
+                <textarea value={sampleFeedback} onChange={e=>setSampleFeedback(e.target.value)}
+                  placeholder="Optional: describe changes e.g. 'make model taller, darker background, show logo more prominently'"
+                  style={{...{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:11,fontFamily:"inherit",boxSizing:"border-box"},resize:"vertical",lineHeight:1.5,minHeight:50}}
+                  rows={2} />
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  {sampleFeedback.trim()&&(
+                    <button onClick={regenSampleWithFeedback} style={{...btn(C.amber),flex:1,fontSize:12}}>
+                      ↺ Redo with Changes
+                    </button>
+                  )}
+                  <button onClick={generateAll} style={{...btn(C.teal),flex:2,fontSize:12,fontWeight:700}}>
+                    ✓ Looks Good — Generate All 8
+                  </button>
                 </div>
-                <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:8}}>
+              </div>
+            )}
+
+            {/* Generating remaining */}
+            {generating&&sampleDone&&(
+              <button onClick={()=>{stopRef.current=true;setGenerating(false);}} style={{...btn(C.danger),width:"100%",fontSize:12,marginBottom:8}}>
+                ■ Stop Generation
+              </button>
+            )}
+
+            {/* Progress bar */}
+            {slots.some(s=>s.status!=="idle")&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:11,color:C.muted}}>Progress</span>
+                  <span style={{fontSize:11}}>{doneCount}/8 done</span>
+                </div>
+                <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:6}}>
                   <div style={{height:"100%",width:`${progress}%`,background:C.purple,borderRadius:3,transition:"width 0.4s"}} />
                 </div>
-                <div style={{display:"flex",gap:4}}>
+                <div style={{display:"flex",gap:3}}>
                   {slots.map((s,i)=>(
-                    <div key={i} style={{flex:1,height:5,borderRadius:2,background:s.status==="done"?C.teal:s.status==="generating"?C.amber:s.status==="error"?C.danger:C.border,transition:"background 0.3s"}} />
+                    <div key={i} style={{flex:1,height:4,borderRadius:2,background:s.status==="done"?C.teal:s.status==="generating"?C.amber:s.status==="error"?C.danger:C.border,transition:"background 0.3s"}} />
                   ))}
                 </div>
               </div>
