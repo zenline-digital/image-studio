@@ -165,6 +165,11 @@ export default function App() {
   const [poseCat,setPoseCat] = useState("All");
   const [refs,setRefs] = useState({front:null,back:null,side:null,logo:null});
   const [analyzingRef,setAnalyzingRef] = useState(false);
+  const [showLogoLibrary,setShowLogoLibrary] = useState(false);
+  const [logoLibrary,setLogoLibrary] = useState(()=>{
+    try{return JSON.parse(localStorage.getItem("imageStudio_logos")||"[]");}catch{return[];}
+  });
+  const [newLogoName,setNewLogoName] = useState("");
   const stopRef = useRef(false);
 
   const doneCount = slots.filter(s=>s.status==="done").length;
@@ -186,22 +191,46 @@ export default function App() {
     setProduct(p=>({...p,lockedModel:m}));
   }
 
+  function saveLogo(){
+    if(!refs.logo){alert("Upload a logo first");return;}
+    const name=newLogoName.trim()||`Logo ${logoLibrary.length+1}`;
+    const updated=[...logoLibrary,{id:Date.now(),name,dataUrl:refs.logo}];
+    setLogoLibrary(updated);
+    localStorage.setItem("imageStudio_logos",JSON.stringify(updated));
+    setNewLogoName("");
+    alert(`Logo "${name}" saved to library!`);
+  }
+
+  function deleteLogo(id){
+    const updated=logoLibrary.filter(l=>l.id!==id);
+    setLogoLibrary(updated);
+    localStorage.setItem("imageStudio_logos",JSON.stringify(updated));
+  }
+
+  function selectLogo(logo){
+    setRefs(p=>({...p,logo:logo.dataUrl}));
+    setShowLogoLibrary(false);
+  }
+
+  async function analyzePhoto(){
+    const photoToAnalyze=refs.front||refs.back;
+    if(!photoToAnalyze){alert("Upload a Front or Back reference photo first");return;}
+    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    setAnalyzingRef(true);
+    try{
+      const base64=photoToAnalyze.split(",")[1];
+      const mime=photoToAnalyze.startsWith("data:image/png")?"image/png":"image/jpeg";
+      const notes=await analyzeProductPhoto(base64,mime,apiKey);
+      if(notes)setProduct(p=>({...p,designNotes:notes}));
+    }catch(e){alert("Analysis failed: "+e.message);}
+    setAnalyzingRef(false);
+  }
+
   async function handleRefUpload(zone,file){
     const reader=new FileReader();
     reader.onload=async(e)=>{
       const dataUrl=e.target.result;
-      const base64=dataUrl.split(",")[1];
-      const mime=file.type;
       setRefs(p=>({...p,[zone]:dataUrl}));
-      // Auto-analyze front or back photos for design notes
-      if((zone==="front"||zone==="back")&&apiKey.length>20){
-        setAnalyzingRef(true);
-        try{
-          const notes=await analyzeProductPhoto(base64,mime,apiKey);
-          if(notes) setProduct(p=>({...p,designNotes:notes}));
-        }catch(e){console.log("Analysis failed:",e.message);}
-        setAnalyzingRef(false);
-      }
     };
     reader.readAsDataURL(file);
   }
@@ -309,14 +338,20 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
-                  Design notes {analyzingRef&&<span style={{color:C.amber}}>(AI analyzing photo...)</span>}
-                  {!analyzingRef&&refs.front&&<span style={{color:C.teal}}> (auto-filled from photo)</span>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <div style={{fontSize:11,color:C.muted}}>
+                    Design notes
+                    {analyzingRef&&<span style={{color:C.amber}}> · AI analyzing...</span>}
+                  </div>
+                  <button onClick={analyzePhoto} disabled={analyzingRef||(!refs.front&&!refs.back)}
+                    style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${C.purple}`,background:analyzingRef?`${C.purple}20`:"transparent",color:C.purple,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit",opacity:(!refs.front&&!refs.back)?0.4:1}}>
+                    {analyzingRef?"⏳ Analyzing...":"🔍 Analyze Photo"}
+                  </button>
                 </div>
                 <textarea style={{...inp,resize:"vertical",lineHeight:1.5,minHeight:70}} rows={3}
-                  placeholder="e.g. Reflective stripe on left sleeve, mesh back panels..."
+                  placeholder="e.g. Reflective stripe on left sleeve, mesh back panels... (or upload Front/Back photo and click Analyze)"
                   value={product.designNotes} onChange={e=>setProduct(p=>({...p,designNotes:e.target.value}))} />
-                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Upload a reference photo below to auto-fill this field</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Upload Front or Back photo → click 🔍 Analyze to auto-fill</div>
               </div>
             </div>
           </div>
@@ -342,19 +377,50 @@ export default function App() {
               <span style={{fontSize:14}}>📸</span>
               <span style={{fontWeight:600,fontSize:13}}>Reference photos</span>
             </div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Optional — helps AI match your actual product. Front/Back uploads auto-fill design notes.</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {["front","back","side","logo"].map(zone=>(
+            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Upload actual product photos. Use 🔍 Analyze to extract design notes.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+              {["front","back","side"].map(zone=>(
                 <label key={zone} style={{cursor:"pointer"}}>
-                  <div style={{border:`1px dashed ${refs[zone]?C.teal:C.border}`,borderRadius:7,overflow:"hidden",background:refs[zone]?`${C.teal}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,transition:"all 0.2s"}}>
+                  <div style={{border:`1px dashed ${refs[zone]?C.teal:C.border}`,borderRadius:7,overflow:"hidden",background:refs[zone]?`${C.teal}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,transition:"all 0.2s",position:"relative"}}>
                     {refs[zone]
-                      ? <img src={refs[zone]} alt={zone} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                      ? <><img src={refs[zone]} alt={zone} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                          <button onClick={e=>{e.preventDefault();e.stopPropagation();setRefs(p=>({...p,[zone]:null}));}} style={{position:"absolute",top:4,right:4,width:18,height:18,borderRadius:"50%",border:"none",background:"rgba(0,0,0,0.6)",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                        </>
                       : <><span style={{fontSize:18}}>📷</span><span style={{fontSize:10,color:C.muted,textTransform:"capitalize"}}>{zone}</span></>}
                   </div>
                   <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleRefUpload(zone,e.target.files[0])} />
                 </label>
               ))}
+              {/* Logo slot with library */}
+              <div>
+                <div style={{border:`1px dashed ${refs.logo?C.amber:C.border}`,borderRadius:7,overflow:"hidden",background:refs.logo?`${C.amber}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,position:"relative"}}>
+                  {refs.logo
+                    ? <><img src={refs.logo} alt="logo" style={{width:"100%",height:"100%",objectFit:"contain",padding:4}} />
+                        <button onClick={()=>setRefs(p=>({...p,logo:null}))} style={{position:"absolute",top:4,right:4,width:18,height:18,borderRadius:"50%",border:"none",background:"rgba(0,0,0,0.6)",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                      </>
+                    : <><span style={{fontSize:18}}>🏷</span><span style={{fontSize:10,color:C.muted}}>Logo</span></>}
+                </div>
+                <div style={{display:"flex",gap:4,marginTop:5}}>
+                  <label style={{flex:1,cursor:"pointer"}}>
+                    <div style={{padding:"4px 0",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:10,fontWeight:600,textAlign:"center"}}>Upload</div>
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleRefUpload("logo",e.target.files[0])} />
+                  </label>
+                  <button onClick={()=>setShowLogoLibrary(true)} style={{flex:1,padding:"4px 0",borderRadius:5,border:`1px solid ${C.amber}`,background:"transparent",color:C.amber,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit"}}>
+                    Library ({logoLibrary.length})
+                  </button>
+                </div>
+                {refs.logo&&(
+                  <button onClick={saveLogo} style={{width:"100%",padding:"4px 0",borderRadius:5,border:`1px solid ${C.teal}`,background:"transparent",color:C.teal,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit",marginTop:4}}>
+                    💾 Save to Library
+                  </button>
+                )}
+              </div>
             </div>
+            {refs.logo&&(
+              <div style={{marginBottom:6}}>
+                <input style={{...inp,fontSize:11}} placeholder="Logo name (for library)..." value={newLogoName} onChange={e=>setNewLogoName(e.target.value)} />
+              </div>
+            )}
           </div>
 
           {/* Output specs */}
@@ -544,6 +610,43 @@ export default function App() {
         </div>
       )}
 
+      {/* Logo Library Modal */}
+      {showLogoLibrary&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
+          onClick={e=>e.target===e.currentTarget&&setShowLogoLibrary(false)}>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:480,maxWidth:"90vw",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontWeight:700,fontSize:15}}>Logo Library</div>
+              <button onClick={()=>setShowLogoLibrary(false)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕ Close</button>
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Saved logos persist across sessions. Click any logo to use it.</div>
+            {logoLibrary.length===0
+              ? <div style={{textAlign:"center",color:C.muted,padding:"40px 0",fontSize:13}}>
+                  No logos saved yet.<br/>Upload a logo in Reference Photos → click 💾 Save to Library
+                </div>
+              : <div style={{overflowY:"auto",flex:1}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+                    {logoLibrary.map(logo=>(
+                      <div key={logo.id} style={{background:C.surf,borderRadius:8,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                        <div onClick={()=>selectLogo(logo)} style={{aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",padding:8,cursor:"pointer",background:"#fff"}}>
+                          <img src={logo.dataUrl} alt={logo.name} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} />
+                        </div>
+                        <div style={{padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</div>
+                          <button onClick={()=>deleteLogo(logo.id)} style={{padding:"2px 6px",borderRadius:4,border:`1px solid ${C.danger}`,background:"transparent",color:C.danger,cursor:"pointer",fontSize:10,fontFamily:"inherit",marginLeft:6}}>🗑</button>
+                        </div>
+                        <div style={{padding:"0 10px 8px"}}>
+                          <button onClick={()=>selectLogo(logo)} style={{width:"100%",padding:"5px 0",borderRadius:5,border:"none",background:C.amber,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}>
+                            Use This Logo
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>}
+          </div>
+        </div>
+      )}
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         *{box-sizing:border-box;}
