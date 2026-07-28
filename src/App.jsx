@@ -166,7 +166,7 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[
       {inlineData:{mimeType:mime,data:base64Image}},
