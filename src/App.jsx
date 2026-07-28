@@ -166,16 +166,25 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[
-      {inlineData:{mimeType:mime,data:base64Image}},
-      {text:"You are a product photographer's assistant analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: logo placement and size, patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, any text or branding visible\"}"}
-    ]}],generationConfig:{responseModalities:["TEXT"]}})
+  // Use Claude API (already connected) instead of Gemini for vision analysis
+  const r = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 500,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mime, data: base64Image } },
+          { type: "text", text: "You are analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: logo placement and size, patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, any text or branding visible\"}" }
+        ]
+      }]
+    })
   });
   const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
-  const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if (d.error) throw new Error(d.error.message);
+  const text = d.content?.[0]?.text || "";
   try {
     const cleaned = text.replace(/```json\n?/g,"").replace(/```\n?/g,"").trim();
     return JSON.parse(cleaned);
@@ -358,7 +367,6 @@ export default function App() {
   async function analyzePhoto(){
     const photoToAnalyze=refs.front||refs.back;
     if(!photoToAnalyze){alert("Upload a Front or Back reference photo first");return;}
-    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
     setAnalyzingRef(true);
     try{
       const base64=photoToAnalyze.split(",")[1];
