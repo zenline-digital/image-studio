@@ -1,4 +1,56 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+
+// ─── IndexedDB Gallery ────────────────────────────────────────────────────────
+const DB_NAME = "ImageStudioGallery", DB_VERSION = 1, STORE = "images";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath:"id", autoIncrement:true });
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbSave(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const req = tx.objectStore(STORE).add(record);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result.reverse()); // newest first
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const req = tx.objectStore(STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbClear() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const req = tx.objectStore(STORE).clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
 
 const PRODUCT_TYPES = ["T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers","Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top","Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants","Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"];
 const GENDERS = ["Unisex","Men's","Women's","Youth"];
@@ -207,7 +259,35 @@ export default function App() {
   const [generating,setGenerating] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
-  const [imagesGenerated,setImagesGenerated] = useState(()=>{
+  const [showGallery, setShowGallery] = useState(false);
+  const [gallery, setGallery] = useState([]);
+  const [gallerySearch, setGallerySearch] = useState("");
+  const [galleryLoading, setGalleryLoading] = useState(false);
+
+  useEffect(() => { loadGallery(); }, []);
+
+  async function loadGallery() {
+    try { setGallery(await dbGetAll()); } catch(e) { console.log("Gallery load failed:", e); }
+  }
+
+  async function saveToGallery(imageData, slotIndex, pose) {
+    const record = {
+      productName: product.name || "Unnamed",
+      brand: product.brand,
+      type: product.type,
+      color: product.color,
+      gender: product.gender,
+      poseName: pose?.name || "Unknown",
+      poseCategory: pose?.category || "",
+      imageData,
+      filename: `${(product.name||"product").replace(/\s+/g,"_")}_${slotIndex+1}_${(pose?.name||"image").replace(/\s+/g,"_")}.jpg`,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      const id = await dbSave(record);
+      setGallery(prev => [{ ...record, id }, ...prev]);
+    } catch(e) { console.log("Gallery save failed:", e); }
+  }
     try{return parseInt(localStorage.getItem("imageStudio_count")||"0");}catch{return 0;}
   });
   const [showKeyModal,setShowKeyModal] = useState(false);
@@ -320,8 +400,10 @@ export default function App() {
     const {base64,mime}=getRefData();
     try{
       const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
-      upd(0,{status:"done",result:await processImage(res.data,res.mime)});
+      const processed=await processImage(res.data,res.mime);
+      upd(0,{status:"done",result:processed});
       trackImageGenerated();
+      await saveToGallery(processed,0,pose);
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -336,8 +418,10 @@ export default function App() {
     const {base64,mime}=getRefData();
     try{
       const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime);
-      upd(0,{status:"done",result:await processImage(res.data,res.mime)});
+      const processed=await processImage(res.data,res.mime);
+      upd(0,{status:"done",result:processed});
       trackImageGenerated();
+      await saveToGallery(processed,0,pose);
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -356,8 +440,10 @@ export default function App() {
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
       try{
         const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
-        upd(i,{status:"done",result:await processImage(res.data,res.mime)});
+        const processed=await processImage(res.data,res.mime);
+        upd(i,{status:"done",result:processed});
         trackImageGenerated();
+        await saveToGallery(processed,i,pose);
       }catch(e){upd(i,{status:"error",error:e.message});}
     }
     setGenerating(false);
@@ -370,7 +456,10 @@ export default function App() {
     const {base64,mime}=getRefData();
     try{
       const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
-      upd(i,{status:"done",result:await processImage(res.data,res.mime)});
+      const processed=await processImage(res.data,res.mime);
+      upd(i,{status:"done",result:processed});
+      trackImageGenerated();
+      await saveToGallery(processed,i,pose);
     }catch(e){upd(i,{status:"error",error:e.message});}
   }
 
@@ -406,6 +495,9 @@ export default function App() {
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>setShowGallery(true)} style={{...btn(C.border,true),fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
+            🖼 Gallery ({gallery.length})
+          </button>
           <div style={{fontSize:11,color:C.muted,background:C.card,padding:"5px 12px",borderRadius:20,border:`1px solid ${C.border}`}}>
             💰 {imagesGenerated} images · ~${(imagesGenerated*0.0336).toFixed(3)} spent
           </div>
@@ -797,7 +889,94 @@ export default function App() {
           </div>
         </div>
       )}
-      <style>{`
+      {/* Gallery Modal */}
+      {showGallery&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",display:"flex",flexDirection:"column",zIndex:200}}>
+          {/* Gallery header */}
+          <div style={{background:C.surf,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:15}}>🖼 Image Gallery</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{gallery.length} images saved · auto-saves every generated image</div>
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <input placeholder="Search by product name..." value={gallerySearch} onChange={e=>setGallerySearch(e.target.value)}
+                style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 12px",color:C.text,fontSize:12,fontFamily:"inherit",width:220}} />
+              {gallery.length>0&&(
+                <button onClick={async()=>{if(confirm(`Delete all ${gallery.length} images from gallery?`)){await dbClear();setGallery([]);}}}
+                  style={{...btn(C.danger,true),fontSize:11}}>🗑 Clear All</button>
+              )}
+              <button onClick={()=>setShowGallery(false)} style={{...btn(C.border,true),fontSize:12,color:C.muted}}>✕ Close</button>
+            </div>
+          </div>
+
+          {/* Gallery grid */}
+          <div style={{flex:1,overflowY:"auto",padding:24}}>
+            {gallery.length===0?(
+              <div style={{textAlign:"center",color:C.muted,padding:"80px 20px"}}>
+                <div style={{fontSize:40,marginBottom:16}}>🖼</div>
+                <div style={{fontSize:16,fontWeight:600,marginBottom:8,color:C.text}}>No images yet</div>
+                <div style={{fontSize:13,lineHeight:1.6}}>Every image you generate is automatically saved here.<br/>Generate your first image to see it appear.</div>
+              </div>
+            ):(
+              <>
+                {/* Group by product */}
+                {(() => {
+                  const filtered = gallery.filter(img =>
+                    !gallerySearch || img.productName.toLowerCase().includes(gallerySearch.toLowerCase()) || img.brand.toLowerCase().includes(gallerySearch.toLowerCase())
+                  );
+                  const groups = {};
+                  filtered.forEach(img => {
+                    const key = `${img.productName} — ${img.brand} ${img.type} ${img.color}`;
+                    if(!groups[key]) groups[key] = [];
+                    groups[key].push(img);
+                  });
+                  return Object.entries(groups).map(([groupName, images]) => (
+                    <div key={groupName} style={{marginBottom:32}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:14}}>{groupName}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{images.length} image{images.length!==1?"s":""} · {new Date(images[0].createdAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
+                        </div>
+                        <button onClick={()=>{
+                          const s=document.createElement("script");
+                          s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+                          s.onload=async()=>{
+                            const zip=new window.JSZip();
+                            images.forEach(img=>zip.file(img.filename,img.imageData.split(",")[1],{base64:true}));
+                            const blob=await zip.generateAsync({type:"blob"});
+                            const u=URL.createObjectURL(blob);
+                            const a=document.createElement("a");a.href=u;a.download=`${images[0].productName.replace(/\s+/g,"_")}_all.zip`;a.click();URL.revokeObjectURL(u);
+                          };
+                          document.head.appendChild(s);
+                        }} style={{...btn(C.teal),fontSize:11}}>⬇ Download All ({images.length})</button>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
+                        {images.map(img=>(
+                          <div key={img.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                            <div style={{aspectRatio:"3/4",overflow:"hidden",position:"relative"}}>
+                              <img src={img.imageData} alt={img.filename} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                            </div>
+                            <div style={{padding:"8px 10px"}}>
+                              <div style={{fontSize:11,fontWeight:600,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{img.poseName}</div>
+                              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{img.poseCategory} · {new Date(img.createdAt).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
+                              <div style={{display:"flex",gap:5}}>
+                                <button onClick={()=>{const a=document.createElement("a");a.href=img.imageData;a.download=img.filename;a.click();}}
+                                  style={{flex:1,padding:"4px 0",borderRadius:5,border:"none",background:C.purple,color:"#fff",cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit"}}>⬇</button>
+                                <button onClick={async()=>{await dbDelete(img.id);setGallery(p=>p.filter(x=>x.id!==img.id));}}
+                                  style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.danger}`,background:"transparent",color:C.danger,cursor:"pointer",fontSize:10,fontFamily:"inherit"}}>🗑</button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </>
+            )}
+          </div>
+        </div>
+      )}
         @keyframes spin{to{transform:rotate(360deg)}}
         *{box-sizing:border-box;}
         input:focus,textarea:focus,select:focus{outline:1px solid #6366f1;}
