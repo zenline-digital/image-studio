@@ -1,593 +1,557 @@
 import { useState, useRef } from "react";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const PRODUCT_TYPES = [
-  "T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers",
-  "Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top",
-  "Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants",
-  "Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"
-];
-
+const PRODUCT_TYPES = ["T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers","Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top","Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants","Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"];
 const GENDERS = ["Unisex","Men's","Women's","Youth"];
+const MODELS = ["Athletic male model, 6ft, muscular build","Athletic female model, 5'8\", lean build","Female model, 5'6\", curvy athletic build","Male model, 5'11\", slim athletic build","Young male model, 5'10\", sporty build","Young female model, 5'7\", athletic build","Mature male model, 50s, fit build","Mature female model, 50s, active build"];
 
 const POSES = {
-  Standard: [
-    { id:"hero_front",    name:"Hero Front",         desc:"Straight-on front view, model looking at camera, arms relaxed at sides" },
-    { id:"back_view",     name:"Back View",           desc:"Straight-on back view showing full rear of garment" },
-    { id:"three_quarter", name:"¾ Front Left",        desc:"Three-quarter angle from front-left, slight body twist" },
-    { id:"upper_body",    name:"Upper Body Close-Up", desc:"Waist-up shot emphasising upper garment detail and fit" },
+  Standard:[
+    {id:"hero_front",name:"Hero Front",desc:"Front-facing, arms at sides, centered, confident stance. Full garment visible, properly centered."},
+    {id:"back_view",name:"Back View",desc:"Straight rear view, full back of garment visible, properly centered."},
+    {id:"three_quarter",name:"¾ Front Left",desc:"Body angled 45° to the left, natural casual stance, mostly front visible."},
+    {id:"upper_body",name:"Upper Body Close-Up",desc:"Framed from waist up, chest design and fabric texture are the hero."},
   ],
-  Action: [
-    { id:"running",       name:"Running Stride",    desc:"Mid-stride running, one foot off ground, arms pumping" },
-    { id:"jump",          name:"Victory Jump",      desc:"Two-foot jump, arms raised in celebration" },
-    { id:"lunge",         name:"Forward Lunge",     desc:"Deep forward lunge, front knee at 90°, arms extended" },
-    { id:"squat",         name:"Deep Squat",        desc:"Parallel squat position, arms forward for balance" },
-    { id:"sprint_start",  name:"Sprint Start",      desc:"Low explosive sprint start position, leaning forward" },
-    { id:"box_jump",      name:"Box Jump",          desc:"Mid-air during box jump, knees tucked" },
-    { id:"burpee",        name:"Burpee",            desc:"Jumping phase of burpee, arms overhead" },
-    { id:"plank",         name:"Plank Hold",        desc:"Perfect plank position, showing back of garment" },
-    { id:"deadlift",      name:"Deadlift",          desc:"Standing with weights, showing garment under load" },
+  Action:[
+    {id:"running",name:"Running Stride",desc:"Mid-stride running, one leg extended forward, arms in natural running motion."},
+    {id:"jump",name:"Victory Jump",desc:"Two-foot jump, arms raised in celebration, full energy."},
+    {id:"lunge",name:"Forward Lunge",desc:"Deep forward lunge, front knee at 90°, arms extended for balance."},
+    {id:"squat",name:"Deep Squat",desc:"Parallel squat position, arms forward for balance, showing lower garment."},
+    {id:"sprint_start",name:"Sprint Start",desc:"Low explosive sprint start position, leaning forward aggressively."},
+    {id:"box_jump",name:"Box Jump",desc:"Mid-air during box jump, knees tucked, powerful athletic moment."},
+    {id:"burpee",name:"Burpee",desc:"Jumping phase of burpee, arms overhead, full body visible."},
+    {id:"plank",name:"Plank Hold",desc:"Perfect plank position, showing back panel and fit under tension."},
+    {id:"deadlift",name:"Deadlift",desc:"Standing with weights, showing garment performance under load."},
   ],
-  Lifestyle: [
-    { id:"hands_hips",    name:"Hands on Hips",     desc:"Confident pose, hands on hips, slight hip tilt" },
-    { id:"arms_crossed",  name:"Arms Crossed",      desc:"Arms folded across chest, looking powerful" },
-    { id:"natural_walk",  name:"Natural Walk",      desc:"Casual walking stride, relaxed and natural" },
-    { id:"power_stance",  name:"Power Stance",      desc:"Wide stance, hands clasped in front" },
-    { id:"shoulder_look", name:"Shoulder Glance",   desc:"Walking away, glancing back over shoulder" },
-    { id:"stretching",    name:"Side Stretch",      desc:"Arms overhead side stretch showing waistband" },
-    { id:"water_break",   name:"Water Break",       desc:"Drinking from bottle post-workout, relaxed" },
-    { id:"phone_check",   name:"Phone Check",       desc:"Checking phone on wrist, post-run pose" },
-    { id:"earbuds",       name:"Earbuds In",        desc:"Adjusting earbuds, about to start workout" },
-    { id:"selfie_pose",   name:"Mirror Selfie",     desc:"Gym mirror selfie pose showing front of garment" },
-    { id:"meditation",    name:"Meditation Sit",    desc:"Cross-legged seated, hands on knees, eyes closed" },
-    { id:"cool_down",     name:"Cool Down Walk",    desc:"Hands behind head, walking cool-down" },
+  Lifestyle:[
+    {id:"hands_hips",name:"Hands on Hips",desc:"Both hands on hips, front-facing, confident power pose."},
+    {id:"arms_crossed",name:"Arms Crossed",desc:"Arms folded across chest, strong confident look."},
+    {id:"natural_walk",name:"Natural Walk",desc:"Casual walking stride, relaxed and natural movement."},
+    {id:"power_stance",name:"Power Stance",desc:"Wide stance, hands clasped in front, authoritative."},
+    {id:"shoulder_look",name:"Shoulder Glance",desc:"Walking away, glancing back over shoulder — editorial feel."},
+    {id:"side_stretch",name:"Side Stretch",desc:"Arms overhead side stretch clearly showing waistband detail."},
+    {id:"water_break",name:"Water Break",desc:"Drinking from bottle post-workout, relaxed lifestyle pose."},
+    {id:"earbuds",name:"Earbuds In",desc:"Adjusting earbuds, about to start workout, energetic."},
+    {id:"selfie_pose",name:"Mirror Selfie",desc:"Gym mirror selfie style showing front of garment clearly."},
+    {id:"meditation",name:"Meditation Sit",desc:"Cross-legged seated, hands on knees, calm focus."},
+    {id:"cool_down",name:"Cool Down Walk",desc:"Hands behind head, walking cool-down, post-workout."},
+    {id:"phone_check",name:"Phone Check",desc:"Checking smartwatch or phone, active lifestyle context."},
   ],
-  Yoga: [
-    { id:"warrior",       name:"Warrior Pose",      desc:"Warrior I position, arms extended overhead" },
-    { id:"side_stretch",  name:"Extended Side",     desc:"Side angle pose, one arm reaching overhead" },
-    { id:"forward_fold",  name:"Forward Fold",      desc:"Standing forward fold, showing back of legs and top" },
-    { id:"tree_balance",  name:"Tree Balance",      desc:"One-legged tree pose, arms overhead" },
-    { id:"downward_dog",  name:"Downward Dog",      desc:"Classic downward dog, showing back panel" },
-    { id:"cobra",         name:"Cobra Pose",        desc:"Cobra position showing front of sports bra/top" },
-    { id:"pigeon",        name:"Pigeon Pose",       desc:"Seated pigeon stretch showing leggings/shorts" },
+  Yoga:[
+    {id:"warrior",name:"Warrior Pose",desc:"Warrior I, arms extended overhead, strong stance."},
+    {id:"side_angle",name:"Extended Side",desc:"Side angle pose, one arm reaching overhead elegantly."},
+    {id:"forward_fold",name:"Forward Fold",desc:"Standing forward fold showing back of legs and top."},
+    {id:"tree_balance",name:"Tree Balance",desc:"One-legged tree pose, arms overhead, perfect balance."},
+    {id:"downward_dog",name:"Downward Dog",desc:"Classic downward dog clearly showing back panel of garment."},
+    {id:"cobra",name:"Cobra Pose",desc:"Cobra position showing front of sports bra or top."},
+    {id:"pigeon",name:"Pigeon Pose",desc:"Seated pigeon stretch showing leggings or shorts detail."},
   ],
-  "Back Views": [
-    { id:"back_hips",     name:"Back Hands Hips",   desc:"Back view, hands on hips, showing rear panel" },
-    { id:"back_right",    name:"Back ¾ Right",      desc:"Three-quarter rear angle from right side" },
-    { id:"back_left",     name:"Back ¾ Left",       desc:"Three-quarter rear angle from left side" },
+  "Back Views":[
+    {id:"back_hips",name:"Back Hands Hips",desc:"Back view, hands on hips, clearly showing rear panel."},
+    {id:"back_right",name:"Back ¾ Right",desc:"Three-quarter rear angle from right side of model."},
+    {id:"back_left",name:"Back ¾ Left",desc:"Three-quarter rear angle from left side of model."},
   ],
-  Detail: [
-    { id:"collar",        name:"Collar Detail",     desc:"Close-up of neckline and collar construction" },
-    { id:"sleeve",        name:"Sleeve Detail",     desc:"Close-up of sleeve cuff and hem stitching" },
-    { id:"hem_detail",    name:"Hem Detail",        desc:"Close-up of bottom hem, waistband or drawstring" },
-    { id:"fabric_macro",  name:"Fabric Macro",      desc:"Extreme close-up of fabric texture and weave" },
-    { id:"logo_feature",  name:"Logo Feature",      desc:"Close-up centred on logo placement" },
+  Detail:[
+    {id:"collar",name:"Collar Detail",desc:"Close-up of neckline and collar construction quality."},
+    {id:"sleeve",name:"Sleeve Detail",desc:"Close-up of sleeve cuff and hem stitching precision."},
+    {id:"hem_detail",name:"Hem Detail",desc:"Close-up of bottom hem, waistband or drawstring detail."},
+    {id:"fabric_macro",name:"Fabric Macro",desc:"Extreme close-up of fabric texture and weave, premium quality visible."},
+    {id:"logo_feature",name:"Logo Feature",desc:"Close-up centred on logo placement and print quality."},
   ],
-  "Flat Lay": [
-    { id:"flat_front",    name:"Flat Lay Front",    desc:"Garment laid flat on white surface, front up, overhead shot" },
-    { id:"flat_back",     name:"Flat Lay Back",     desc:"Garment laid flat, back side up, overhead shot" },
-    { id:"flat_folded",   name:"Flat Lay Folded",   desc:"Garment neatly folded on white surface, branded look" },
+  "Flat Lay":[
+    {id:"flat_front",name:"Flat Lay – Front",desc:"Garment laid flat on white surface, front up, top-down overhead shot, front sid..."},
+    {id:"flat_back",name:"Flat Lay – Back",desc:"Garment flat, back side up, overhead top-down shot, clean white surface."},
+    {id:"flat_folded",name:"Flat Lay – Folded",desc:"Garment neatly folded on white surface, branded presentation."},
   ],
-  Angles: [
-    { id:"left_profile",  name:"Left Side Profile", desc:"Pure left-side silhouette showing garment side seam" },
-    { id:"right_profile", name:"Right Side Profile", desc:"Pure right-side silhouette showing garment side seam" },
-    { id:"low_angle",     name:"Low Angle Power",   desc:"Camera below waist shooting up, powerful athletic stance" },
-    { id:"overhead_edit", name:"Overhead Editorial", desc:"Top-down editorial flat lay with props and accessories" },
+  Angles:[
+    {id:"left_profile",name:"Left Side Profile",desc:"Pure left-side silhouette showing garment side seam and fit."},
+    {id:"right_profile",name:"Right Side Profile",desc:"Pure right-side silhouette showing garment side seam and fit."},
+    {id:"low_angle",name:"Low Angle Power",desc:"Camera below waist shooting up, powerful athletic stance."},
+    {id:"overhead_edit",name:"Overhead Editorial",desc:"Top-down editorial flat lay with props and accessories."},
   ],
-  Floor: [
-    { id:"seated_cross",  name:"Seated Cross-Legged", desc:"Seated cross-legged on floor, casual athletic look" },
-    { id:"low_kneel",     name:"Low Kneeling Lunge",  desc:"Low kneeling lunge showing leg garment in detail" },
+  Floor:[
+    {id:"seated_cross",name:"Seated Cross-Legged",desc:"Seated cross-legged on floor, casual athletic lifestyle."},
+    {id:"low_kneel",name:"Low Kneeling Lunge",desc:"Low kneeling lunge showing leg garment detail clearly."},
   ],
-  Fashion: [
-    { id:"hand_heart",    name:"Hand on Heart",     desc:"One hand over heart, slight lean forward, emotional connection" },
-    { id:"jump_kick",     name:"Jump Kick",         desc:"Mid-air side kick, dynamic action editorial" },
+  Fashion:[
+    {id:"hand_heart",name:"Hand on Heart",desc:"One hand over heart, slight lean forward, emotional brand connection."},
+    {id:"jump_kick",name:"Jump Kick",desc:"Mid-air side kick, dynamic action editorial shot."},
   ],
 };
 
-const ALL_POSES = Object.entries(POSES).flatMap(([cat, poses]) =>
-  poses.map(p => ({ ...p, category: cat }))
-);
+const ALL_POSES = Object.entries(POSES).flatMap(([cat,poses]) => poses.map(p => ({...p, category:cat})));
+
+const CAT_COLORS = {Standard:"#6366f1",Action:"#ef4444",Lifestyle:"#f59e0b",Yoga:"#10b981","Back Views":"#8b5cf6",Detail:"#06b6d4","Flat Lay":"#ec4899",Angles:"#f97316",Floor:"#84cc16",Fashion:"#a855f7"};
 
 const DEFAULT_SLOTS = [
-  { poseId: "hero_front",    label: "Hero Front",         varied: false },
-  { poseId: "back_view",     label: "Back View",          varied: false },
-  { poseId: "three_quarter", label: "¾ Front Left",       varied: false },
-  { poseId: "upper_body",    label: "Upper Body Close-Up", varied: false },
-  { poseId: "flat_front",    label: "Flat Lay Front",     varied: false },
-  { poseId: "running",       label: "Running Stride",     varied: true  },
-  { poseId: "hands_hips",    label: "Hands on Hips",      varied: true  },
-  { poseId: "fabric_macro",  label: "Fabric Macro",       varied: true  },
+  {poseId:"hero_front",varied:false},{poseId:"back_view",varied:false},
+  {poseId:"three_quarter",varied:false},{poseId:"upper_body",varied:false},
+  {poseId:"flat_front",varied:false},{poseId:"running",varied:true},
+  {poseId:"hands_hips",varied:true},{poseId:"fabric_macro",varied:true},
 ];
 
-const CAT_COLORS = {
-  Standard:"#6366f1", Action:"#ef4444", Lifestyle:"#f59e0b",
-  Yoga:"#10b981","Back Views":"#8b5cf6", Detail:"#06b6d4",
-  "Flat Lay":"#ec4899", Angles:"#f97316", Floor:"#84cc16", Fashion:"#a855f7"
-};
+const C = {bg:"#0D0D14",surf:"#13131E",card:"#1A1A28",border:"#252538",purple:"#6366f1",teal:"#10b981",amber:"#f59e0b",danger:"#ef4444",text:"#F0F0F8",muted:"#6B7090"};
 
-const C = {
-  bg:"#0A0A0F", surf:"#12121A", card:"#1A1A26", border:"#2A2A3E",
-  purple:"#6366f1", teal:"#10b981", amber:"#f59e0b", danger:"#ef4444",
-  text:"#F0F0F8", muted:"#6B7090"
-};
-
-// ─── Gemini Image Generation ──────────────────────────────────────────────────
 async function generateImage(prompt, apiKey) {
-  // Use Imagen 3 (billing enabled — best quality, no daily limit)
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        instances: [{ prompt }],
-        parameters: { sampleCount: 1, aspectRatio: "3:4" }
-      })
-    }
-  );
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({instances:[{prompt}],parameters:{sampleCount:1,aspectRatio:"3:4"}})
+  });
   const d = await r.json();
-  if (d.error) throw new Error(d.error.message);
-  if (d.predictions?.[0]?.bytesBase64Encoded) {
-    return { data: d.predictions[0].bytesBase64Encoded, mime: "image/png" };
-  }
-  // Fallback to Gemini Flash image generation
-  const r2 = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
-      })
-    }
-  );
+  if(d.error) throw new Error(d.error.message);
+  if(d.predictions?.[0]?.bytesBase64Encoded) return {data:d.predictions[0].bytesBase64Encoded,mime:"image/png"};
+  // Fallback
+  const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
+  });
   const d2 = await r2.json();
-  if (d2.error) throw new Error(d2.error.message);
-  const parts = d2.candidates?.[0]?.content?.parts || [];
-  for (const part of parts) {
-    if (part.inlineData?.data) return { data: part.inlineData.data, mime: part.inlineData.mimeType };
-  }
-  throw new Error("No image returned — check your API key and billing");
+  if(d2.error) throw new Error(d2.error.message);
+  for(const part of d2.candidates?.[0]?.content?.parts||[]) if(part.inlineData?.data) return {data:part.inlineData.data,mime:part.inlineData.mimeType};
+  throw new Error("No image returned — check API key and billing");
 }
 
-// ─── Canvas Processing ────────────────────────────────────────────────────────
+async function analyzeProductPhoto(base64Image, mime, apiKey) {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[
+      {inlineData:{mimeType:mime,data:base64Image}},
+      {text:"You are a product photographer's assistant. Look at this activewear product photo and write a concise design note (2-4 sentences) describing: logo placement and size, any patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, etc.), and any text or branding visible. Be specific and factual. Return only the design note text, no preamble."}
+    ]}]})
+  });
+  const d = await r.json();
+  if(d.error) throw new Error(d.error.message);
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
 async function processImage(base64Data, mime) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve,reject) => {
     const img = new Image();
     img.onload = () => {
-      const W = 1948, H = 2656, PAD = Math.round(W * 0.04);
-      const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = H;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, W, H);
-      const scale = Math.min((W - PAD * 2) / img.width, (H - PAD * 2) / img.height);
-      const sw = img.width * scale, sh = img.height * scale;
-      const sx = (W - sw) / 2, sy = (H - sh) / 2;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, sx, sy, sw, sh);
-      resolve(canvas.toDataURL("image/jpeg", 0.95));
+      const W=1948,H=2656,PAD=Math.round(W*0.04);
+      const canvas=document.createElement("canvas");
+      canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext("2d");
+      ctx.fillStyle="#FFFFFF"; ctx.fillRect(0,0,W,H);
+      const scale=Math.min((W-PAD*2)/img.width,(H-PAD*2)/img.height);
+      const sw=img.width*scale,sh=img.height*scale;
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality="high";
+      ctx.drawImage(img,(W-sw)/2,(H-sh)/2,sw,sh);
+      resolve(canvas.toDataURL("image/jpeg",0.95));
     };
-    img.onerror = reject;
-    img.src = `data:${mime};base64,${base64Data}`;
+    img.onerror=reject;
+    img.src=`data:${mime};base64,${base64Data}`;
   });
 }
 
-// ─── Build Prompt ─────────────────────────────────────────────────────────────
 function buildPrompt(product, pose) {
-  const { name, type, gender, color, brand, designNotes } = product;
-  const genderModel = gender === "Women's" ? "female" : gender === "Men's" ? "male" : gender === "Youth" ? "young" : "athletic";
-  const isFlat = pose.category === "Flat Lay";
-  const isDetail = pose.category === "Detail";
-
-  if (isFlat) {
-    return `Professional product photography flat lay: ${color} ${brand} ${type}, ${pose.desc}. Pure white background #FFFFFF. Sharp focus, even studio lighting. No shadows, no props unless specified. Marketplace listing quality, Amazon standard, 3:4 aspect ratio.${designNotes ? ` Design details: ${designNotes}.` : ""}`;
-  }
-  if (isDetail) {
-    return `Extreme close-up product photography: ${color} ${brand} ${type}. ${pose.desc}. Pure white background. Studio macro lighting, razor-sharp focus on fabric detail and construction. 3:4 aspect ratio. High-end activewear brand quality.${designNotes ? ` Design: ${designNotes}.` : ""}`;
-  }
-  return `Professional activewear product photography. ${genderModel} athletic model wearing ${color} ${brand} ${type}. ${pose.desc}. Pure white background #FFFFFF, full body visible, clean studio lighting, no shadows on background. Model face neutral/confident. Marketplace listing quality, Amazon/Noon standard. 3:4 portrait aspect ratio.${designNotes ? ` Product design notes: ${designNotes}.` : ""}`;
+  const {name,type,gender,color,brand,designNotes,lockedModel} = product;
+  const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
+  const modelDesc = lockedModel || `${gModel} athletic model`;
+  const isFlat = pose.category==="Flat Lay";
+  const isDetail = pose.category==="Detail";
+  if(isFlat) return `Professional product photography flat lay: ${color} ${brand} ${type}. ${pose.desc} Pure white background #FFFFFF. Sharp focus, even studio lighting, no shadows. Marketplace listing quality, Amazon standard, 3:4 portrait.${designNotes?` Design: ${designNotes}.`:""}`;
+  if(isDetail) return `Extreme close-up product photography: ${color} ${brand} ${type}. ${pose.desc} Pure white background. Macro studio lighting, razor-sharp focus. High-end activewear brand quality. 3:4 portrait.${designNotes?` Design: ${designNotes}.`:""}`;
+  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc} Pure white background #FFFFFF, full body visible, clean studio lighting, no shadows on background. Model face neutral/confident. Marketplace listing quality, Amazon/Noon standard. 3:4 portrait aspect ratio.${designNotes?` Product design: ${designNotes}.`:""}`;
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [product, setProduct] = useState({ name:"", type:"T-Shirt", gender:"Unisex", color:"", brand:"Actiwear", designNotes:"" });
-  const [slots, setSlots] = useState(DEFAULT_SLOTS.map(s => ({ ...s, status:"idle", result:null, error:null })));
-  const [apiKey, setApiKey] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [stopped, setStopped] = useState(false);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [showPosePicker, setShowPosePicker] = useState(null);
-  const [poseSearch, setPoseSearch] = useState("");
-  const [poseCat, setPoseCat] = useState("All");
-  const [refs, setRefs] = useState({ front:null, back:null, side:null, logo:null });
+  const [product,setProduct] = useState({name:"",type:"T-Shirt",gender:"Unisex",color:"",brand:"Actiwear",designNotes:"",lockedModel:""});
+  const [slots,setSlots] = useState(DEFAULT_SLOTS.map(s=>({...s,status:"idle",result:null,error:null})));
+  const [apiKey,setApiKey] = useState("");
+  const [generating,setGenerating] = useState(false);
+  const [showKeyModal,setShowKeyModal] = useState(false);
+  const [showPosePicker,setShowPosePicker] = useState(null);
+  const [poseSearch,setPoseSearch] = useState("");
+  const [poseCat,setPoseCat] = useState("All");
+  const [refs,setRefs] = useState({front:null,back:null,side:null,logo:null});
+  const [analyzingRef,setAnalyzingRef] = useState(false);
   const stopRef = useRef(false);
 
-  const doneCount = slots.filter(s => s.status === "done").length;
-  const progress = Math.round((doneCount / 8) * 100);
+  const doneCount = slots.filter(s=>s.status==="done").length;
+  const progress = Math.round((doneCount/8)*100);
 
-  function updateSlot(i, patch) {
-    setSlots(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
-  }
+  function upd(i,patch){setSlots(p=>p.map((s,idx)=>idx===i?{...s,...patch}:s));}
 
-  function randomizeVaried() {
-    const variedPoses = ALL_POSES.filter(p =>
-      !["Standard","Flat Lay","Detail","Back Views"].includes(p.category)
-    );
-    setSlots(prev => prev.map(s => {
-      if (!s.varied) return s;
-      const random = variedPoses[Math.floor(Math.random() * variedPoses.length)];
-      return { ...s, poseId: random.id, label: random.name };
+  function randomizeVaried(){
+    const pool=ALL_POSES.filter(p=>!["Standard","Flat Lay","Detail","Back Views"].includes(p.category));
+    setSlots(p=>p.map(s=>{
+      if(!s.varied)return s;
+      const r=pool[Math.floor(Math.random()*pool.length)];
+      return {...s,poseId:r.id};
     }));
   }
 
-  async function generateAll() {
-    if (!apiKey || apiKey.length < 20) { setShowKeyModal(true); return; }
-    if (!product.name.trim()) { alert("Enter a product name first"); return; }
-    stopRef.current = false;
-    setStopped(false);
-    setGenerating(true);
-    setSlots(prev => prev.map(s => ({ ...s, status:"pending", result:null, error:null })));
+  function randomizeModel(){
+    const m=MODELS[Math.floor(Math.random()*MODELS.length)];
+    setProduct(p=>({...p,lockedModel:m}));
+  }
 
-    for (let i = 0; i < slots.length; i++) {
-      if (stopRef.current) { updateSlot(i, { status:"idle" }); continue; }
-      updateSlot(i, { status:"generating" });
-      const pose = ALL_POSES.find(p => p.id === slots[i].poseId) || ALL_POSES[0];
-      const prompt = buildPrompt(product, pose);
-      try {
-        const { data, mime } = await generateImage(prompt, apiKey);
-        const processed = await processImage(data, mime);
-        updateSlot(i, { status:"done", result:processed });
-      } catch (e) {
-        updateSlot(i, { status:"error", error: e.message });
+  async function handleRefUpload(zone,file){
+    const reader=new FileReader();
+    reader.onload=async(e)=>{
+      const dataUrl=e.target.result;
+      const base64=dataUrl.split(",")[1];
+      const mime=file.type;
+      setRefs(p=>({...p,[zone]:dataUrl}));
+      // Auto-analyze front or back photos for design notes
+      if((zone==="front"||zone==="back")&&apiKey.length>20){
+        setAnalyzingRef(true);
+        try{
+          const notes=await analyzeProductPhoto(base64,mime,apiKey);
+          if(notes) setProduct(p=>({...p,designNotes:notes}));
+        }catch(e){console.log("Analysis failed:",e.message);}
+        setAnalyzingRef(false);
       }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function generateAll(){
+    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    if(!product.name.trim()){alert("Enter a product name first");return;}
+    stopRef.current=false;
+    setGenerating(true);
+    setSlots(p=>p.map(s=>({...s,status:"pending",result:null,error:null})));
+    for(let i=0;i<slots.length;i++){
+      if(stopRef.current){upd(i,{status:"idle"});continue;}
+      upd(i,{status:"generating"});
+      const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
+      try{
+        const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
+        upd(i,{status:"done",result:await processImage(data,mime)});
+      }catch(e){upd(i,{status:"error",error:e.message});}
     }
     setGenerating(false);
   }
 
-  async function regenerateSlot(i) {
-    if (!apiKey || apiKey.length < 20) { setShowKeyModal(true); return; }
-    updateSlot(i, { status:"generating", error:null });
-    const pose = ALL_POSES.find(p => p.id === slots[i].poseId) || ALL_POSES[0];
-    const prompt = buildPrompt(product, pose);
-    try {
-      const { data, mime } = await generateImage(prompt, apiKey);
-      const processed = await processImage(data, mime);
-      updateSlot(i, { status:"done", result:processed });
-    } catch (e) {
-      updateSlot(i, { status:"error", error: e.message });
-    }
+  async function regenSlot(i){
+    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    upd(i,{status:"generating",error:null});
+    const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
+    try{
+      const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
+      upd(i,{status:"done",result:await processImage(data,mime)});
+    }catch(e){upd(i,{status:"error",error:e.message});}
   }
 
-  function downloadAll() {
-    const done = slots.filter(s => s.status === "done");
-    if (done.length === 0) return;
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-    script.onload = async () => {
-      const zip = new window.JSZip();
-      done.forEach((s, i) => {
-        const base64 = s.result.split(",")[1];
-        const idx = slots.indexOf(s) + 1;
-        zip.file(`${product.name.replace(/\s+/g,"_")}_${idx}.jpg`, base64, { base64: true });
-      });
-      const blob = await zip.generateAsync({ type:"blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `${product.name.replace(/\s+/g,"_")}_images.zip`;
-      a.click(); URL.revokeObjectURL(url);
+  function downloadAll(){
+    const done=slots.filter(s=>s.status==="done");
+    if(!done.length)return;
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+    s.onload=async()=>{
+      const zip=new window.JSZip();
+      slots.forEach((sl,i)=>{if(sl.status==="done")zip.file(`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`,sl.result.split(",")[1],{base64:true});});
+      const blob=await zip.generateAsync({type:"blob"});
+      const u=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=u;a.download=`${product.name.replace(/\s+/g,"_")}_images.zip`;a.click();URL.revokeObjectURL(u);
     };
-    document.head.appendChild(script);
+    document.head.appendChild(s);
   }
 
-  function downloadOne(slot, idx) {
-    const a = document.createElement("a");
-    a.href = slot.result;
-    a.download = `${product.name.replace(/\s+/g,"_")}_${idx + 1}.jpg`;
-    a.click();
-  }
+  const filteredPoses=ALL_POSES.filter(p=>(poseCat==="All"||p.category===poseCat)&&(!poseSearch||p.name.toLowerCase().includes(poseSearch.toLowerCase())||p.desc.toLowerCase().includes(poseSearch.toLowerCase())));
 
-  function handleRefUpload(zone, file) {
-    const reader = new FileReader();
-    reader.onload = e => setRefs(prev => ({ ...prev, [zone]: e.target.result }));
-    reader.readAsDataURL(file);
-  }
-
-  const filteredPoses = ALL_POSES.filter(p => {
-    const matchCat = poseCat === "All" || p.category === poseCat;
-    const matchSearch = !poseSearch || p.name.toLowerCase().includes(poseSearch.toLowerCase()) || p.desc.toLowerCase().includes(poseSearch.toLowerCase());
-    return matchCat && matchSearch;
-  });
-
-  const S = {
-    page: { minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',sans-serif", padding:24 },
-    card: { background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:20 },
-    label: { fontSize:12, color:C.muted, marginBottom:6, display:"block" },
-    input: { width:"100%", background:C.surf, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", color:C.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" },
-    btn: (color="#6366f1", outline=false) => ({
-      padding:"9px 18px", borderRadius:8, border:outline?`1px solid ${color}`:"none",
-      background:outline?"transparent":color, color:outline?color:"#fff",
-      cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit", transition:"opacity 0.15s"
-    }),
-  };
+  const inp={width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"};
+  const btn=(bg,outline=false)=>({padding:"8px 16px",borderRadius:7,border:outline?`1px solid ${bg}`:"none",background:outline?"transparent":bg,color:outline?bg:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",transition:"opacity 0.15s"});
 
   return (
-    <div style={S.page}>
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Inter',sans-serif",fontSize:13}}>
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:28 }}>
-        <div>
-          <div style={{ fontSize:22, fontWeight:700, letterSpacing:"-0.5px" }}>Image Studio</div>
-          <div style={{ fontSize:12, color:C.muted, marginTop:3 }}>AI-powered product photography · Actiwear</div>
+      <div style={{background:C.surf,borderBottom:`1px solid ${C.border}`,padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:32,height:32,borderRadius:8,background:C.purple,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎨</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>Image Studio</div>
+            <div style={{fontSize:11,color:C.muted}}>Actiwear · SM</div>
+          </div>
         </div>
-        <div style={{ display:"flex", gap:10 }}>
-          <button onClick={() => setShowKeyModal(true)} style={{ ...S.btn(C.border, true), fontSize:12, color:C.muted }}>
-            🔑 {apiKey.length > 20 ? "✓ API Key Set" : "Add API Key"}
-          </button>
-        </div>
+        <button onClick={()=>setShowKeyModal(true)} style={{...btn(apiKey.length>20?C.teal:C.purple),fontSize:11,display:"flex",alignItems:"center",gap:6}}>
+          🔑 {apiKey.length>20?"✓ API Key Set":"Add API Key"}
+        </button>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"340px 1fr", gap:20 }}>
-        {/* Left panel */}
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:0,height:"calc(100vh - 57px)",overflow:"hidden"}}>
+        {/* Left sidebar */}
+        <div style={{background:C.surf,borderRight:`1px solid ${C.border}`,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
           {/* Product details */}
-          <div style={S.card}>
-            <div style={{ fontSize:14, fontWeight:600, marginBottom:16 }}>Product Details</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <span style={{fontSize:14}}>🎯</span>
+              <span style={{fontWeight:600,fontSize:13}}>Product details</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div>
-                <label style={S.label}>Product Name *</label>
-                <input style={S.input} value={product.name} onChange={e => setProduct(p => ({...p, name:e.target.value}))} placeholder="e.g. Apex Training T-Shirt" />
+                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Product name *</div>
+                <input style={inp} placeholder="e.g. Pro Fit Tee Black" value={product.name} onChange={e=>setProduct(p=>({...p,name:e.target.value}))} />
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <div>
-                  <label style={S.label}>Type</label>
-                  <select style={S.input} value={product.type} onChange={e => setProduct(p => ({...p, type:e.target.value}))}>
-                    {PRODUCT_TYPES.map(t => <option key={t}>{t}</option>)}
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Type</div>
+                  <select style={inp} value={product.type} onChange={e=>setProduct(p=>({...p,type:e.target.value}))}>
+                    {PRODUCT_TYPES.map(t=><option key={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={S.label}>Gender</label>
-                  <select style={S.input} value={product.gender} onChange={e => setProduct(p => ({...p, gender:e.target.value}))}>
-                    {GENDERS.map(g => <option key={g}>{g}</option>)}
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Gender</div>
+                  <select style={inp} value={product.gender} onChange={e=>setProduct(p=>({...p,gender:e.target.value}))}>
+                    {GENDERS.map(g=><option key={g}>{g}</option>)}
                   </select>
                 </div>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 <div>
-                  <label style={S.label}>Color</label>
-                  <input style={S.input} value={product.color} onChange={e => setProduct(p => ({...p, color:e.target.value}))} placeholder="e.g. Midnight Black" />
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Color *</div>
+                  <input style={inp} placeholder="e.g. Jet Black" value={product.color} onChange={e=>setProduct(p=>({...p,color:e.target.value}))} />
                 </div>
                 <div>
-                  <label style={S.label}>Brand</label>
-                  <input style={S.input} value={product.brand} onChange={e => setProduct(p => ({...p, brand:e.target.value}))} />
+                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Brand</div>
+                  <input style={inp} value={product.brand} onChange={e=>setProduct(p=>({...p,brand:e.target.value}))} />
                 </div>
               </div>
               <div>
-                <label style={S.label}>Design Notes</label>
-                <textarea style={{ ...S.input, resize:"vertical", lineHeight:1.5 }} rows={3}
-                  value={product.designNotes} onChange={e => setProduct(p => ({...p, designNotes:e.target.value}))}
-                  placeholder="Logo placement, patterns, special features, reflective strips, mesh panels..." />
+                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
+                  Design notes {analyzingRef&&<span style={{color:C.amber}}>(AI analyzing photo...)</span>}
+                  {!analyzingRef&&refs.front&&<span style={{color:C.teal}}> (auto-filled from photo)</span>}
+                </div>
+                <textarea style={{...inp,resize:"vertical",lineHeight:1.5,minHeight:70}} rows={3}
+                  placeholder="e.g. Reflective stripe on left sleeve, mesh back panels..."
+                  value={product.designNotes} onChange={e=>setProduct(p=>({...p,designNotes:e.target.value}))} />
+                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Upload a reference photo below to auto-fill this field</div>
               </div>
             </div>
           </div>
 
+          {/* Model */}
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:14}}>👤</span>
+                <span style={{fontWeight:600,fontSize:13}}>Model</span>
+              </div>
+              <button onClick={randomizeModel} style={{...btn(C.border,true),padding:"4px 10px",fontSize:11,color:C.muted}}>↺ Randomize</button>
+            </div>
+            {product.lockedModel
+              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`}}>🔒 {product.lockedModel}</div>
+              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Click Randomize to lock a consistent model for all 8 images. Leave blank to let AI choose.</div>}
+            {product.lockedModel&&<button onClick={()=>setProduct(p=>({...p,lockedModel:""}))} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:6}}>✕ Clear</button>}
+          </div>
+
           {/* Reference photos */}
-          <div style={S.card}>
-            <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>Reference Photos</div>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:14 }}>Upload your actual product photos for better AI accuracy</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {["front","back","side","logo"].map(zone => (
-                <label key={zone} style={{ cursor:"pointer" }}>
-                  <div style={{ border:`1px dashed ${refs[zone] ? C.teal : C.border}`, borderRadius:8, padding:12, textAlign:"center", background: refs[zone] ? `${C.teal}10` : "transparent", transition:"all 0.2s", position:"relative", overflow:"hidden" }}>
-                    {refs[zone] ? (
-                      <img src={refs[zone]} alt={zone} style={{ width:"100%", height:80, objectFit:"cover", borderRadius:4 }} />
-                    ) : (
-                      <>
-                        <div style={{ fontSize:20, marginBottom:4 }}>📷</div>
-                        <div style={{ fontSize:11, color:C.muted, textTransform:"capitalize" }}>{zone} View</div>
-                      </>
-                    )}
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{fontSize:14}}>📸</span>
+              <span style={{fontWeight:600,fontSize:13}}>Reference photos</span>
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Optional — helps AI match your actual product. Front/Back uploads auto-fill design notes.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {["front","back","side","logo"].map(zone=>(
+                <label key={zone} style={{cursor:"pointer"}}>
+                  <div style={{border:`1px dashed ${refs[zone]?C.teal:C.border}`,borderRadius:7,overflow:"hidden",background:refs[zone]?`${C.teal}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,transition:"all 0.2s"}}>
+                    {refs[zone]
+                      ? <img src={refs[zone]} alt={zone} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                      : <><span style={{fontSize:18}}>📷</span><span style={{fontSize:10,color:C.muted,textTransform:"capitalize"}}>{zone}</span></>}
                   </div>
-                  <input type="file" accept="image/*" style={{ display:"none" }} onChange={e => e.target.files[0] && handleRefUpload(zone, e.target.files[0])} />
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleRefUpload(zone,e.target.files[0])} />
                 </label>
               ))}
             </div>
           </div>
 
-          {/* Generate button */}
-          <div style={S.card}>
-            <div style={{ display:"flex", gap:10, marginBottom:14 }}>
-              <button onClick={generateAll} disabled={generating} style={{ ...S.btn(), flex:1, fontSize:14, fontWeight:700 }}>
-                {generating ? `⏳ Generating... ${doneCount}/8` : "⚡ Generate 8 Images"}              </button>
-              {generating && (
-                <button onClick={() => { stopRef.current = true; setStopped(true); }} style={S.btn(C.danger, true)}>■ Stop</button>
-              )}
+          {/* Output specs */}
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {[["Output size","1948 × 2656 px"],["Format","JPEG 95% quality"],["Background","Pure white #FFFFFF"],["Images per product","8"],["AI model","Gemini Imagen 3"]].map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:C.muted}}>{k}</span>
+                  <span style={{fontSize:11,fontWeight:500}}>{v}</span>
+                </div>
+              ))}
             </div>
-            {generating && (
+          </div>
+        </div>
+
+        {/* Right main area */}
+        <div style={{overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16}}>
+          {/* Pose configuration */}
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:14}}>🎭</span>
+                <span style={{fontWeight:600}}>Pose configuration</span>
+                <span style={{fontSize:11,color:C.muted}}>· click any slot to change</span>
+              </div>
+              <button onClick={randomizeVaried} style={{...btn(C.border,true),fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
+                ↺ Randomize 6-8
+              </button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+              {slots.map((slot,i)=>{
+                const pose=ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
+                const cc=CAT_COLORS[pose.category]||C.purple;
+                return(
+                  <div key={i} onClick={()=>setShowPosePicker(i)} style={{background:C.surf,border:`1px solid ${C.border}`,borderRadius:8,padding:12,cursor:"pointer",transition:"border-color 0.15s"}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=cc} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:10,color:C.muted}}>#{i+1}</span>
+                      <span style={{fontSize:10,color:cc,background:`${cc}20`,padding:"1px 6px",borderRadius:10}}>{pose.category}</span>
+                    </div>
+                    <div style={{fontWeight:600,fontSize:12,marginBottom:4}}>{pose.name}</div>
+                    <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{pose.desc.slice(0,70)}...</div>
+                    {slot.varied&&<div style={{marginTop:6,fontSize:10,color:C.amber}}>● varied slot</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Generate section */}
+          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div>
-                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                  <span style={{ fontSize:12, color:C.muted }}>Progress</span>
-                  <span style={{ fontSize:12, color:C.text }}>{progress}%</span>
+                <div style={{fontWeight:600,marginBottom:2}}>Generate 8 images</div>
+                <div style={{fontSize:11,color:C.muted}}>{apiKey.length>20?"1 key configured · Imagen 3 active":"Add API key to enable generation"}</div>
+              </div>
+              {doneCount>0&&<button onClick={downloadAll} style={btn(C.teal)}>⬇ Download ZIP ({doneCount})</button>}
+            </div>
+            <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateAll}
+              style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:14,fontWeight:700,padding:"12px",marginBottom:generating?12:0}}>
+              {generating?`■ Stop (${doneCount}/8 done)`:`⚡ Generate image 1 of 8`}
+            </button>
+            {generating&&(
+              <div style={{marginTop:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{fontSize:11,color:C.muted}}>Progress</span>
+                  <span style={{fontSize:11}}>{progress}%</span>
                 </div>
-                <div style={{ height:6, background:C.border, borderRadius:3, overflow:"hidden" }}>
-                  <div style={{ height:"100%", width:`${progress}%`, background:C.purple, borderRadius:3, transition:"width 0.3s" }} />
+                <div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:8}}>
+                  <div style={{height:"100%",width:`${progress}%`,background:C.purple,borderRadius:3,transition:"width 0.4s"}} />
                 </div>
-                <div style={{ display:"flex", gap:4, marginTop:10 }}>
-                  {slots.map((s, i) => (
-                    <div key={i} style={{ flex:1, height:6, borderRadius:2, background: s.status==="done"?C.teal : s.status==="generating"?C.amber : s.status==="error"?C.danger : C.border, transition:"background 0.3s" }} />
+                <div style={{display:"flex",gap:4}}>
+                  {slots.map((s,i)=>(
+                    <div key={i} style={{flex:1,height:5,borderRadius:2,background:s.status==="done"?C.teal:s.status==="generating"?C.amber:s.status==="error"?C.danger:C.border,transition:"background 0.3s"}} />
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ display:"flex", gap:10, marginTop:generating?14:0 }}>
-              <button onClick={randomizeVaried} style={{ ...S.btn(C.border, true), flex:1, fontSize:12, color:C.muted }}>
-                🎲 Randomize Varied Slots
-              </button>
-              {doneCount > 0 && (
-                <button onClick={downloadAll} style={{ ...S.btn(C.teal), fontSize:12 }}>
-                  ⬇ ZIP ({doneCount})
-                </button>
-              )}
-            </div>
           </div>
-        </div>
 
-        {/* Right panel — 8 image slots */}
-        <div>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-            <div style={{ fontSize:14, fontWeight:600 }}>Image Slots</div>
-            <div style={{ fontSize:12, color:C.muted }}>Click slot header to change pose · Varied slots can be randomized</div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14 }}>
-            {slots.map((slot, i) => {
-              const pose = ALL_POSES.find(p => p.id === slot.poseId) || ALL_POSES[0];
-              const catColor = CAT_COLORS[pose.category] || C.purple;
-              return (
-                <div key={i} style={{ ...S.card, padding:0, overflow:"hidden" }}>
-                  {/* Slot header */}
-                  <div onClick={() => setShowPosePicker(i)} style={{ padding:"10px 12px", background:C.surf, borderBottom:`1px solid ${C.border}`, cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
-                    <div style={{ width:6, height:6, borderRadius:"50%", background:catColor, flexShrink:0 }} />
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:11, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pose.name}</div>
-                      <div style={{ fontSize:10, color:C.muted }}>{pose.category} {slot.varied && "· varied"}</div>
-                    </div>
-                    <span style={{ fontSize:10, color:C.muted }}>#{i+1}</span>
-                  </div>
-
-                  {/* Image area */}
-                  <div style={{ aspectRatio:"3/4", background:C.surf, position:"relative", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
-                    {slot.status === "done" && slot.result ? (
-                      <div style={{ position:"relative", width:"100%", height:"100%" }}>
-                        <img src={slot.result} alt={pose.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
-                        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0)", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:0, transition:"all 0.2s" }}
-                          onMouseEnter={e => e.currentTarget.style.background="rgba(0,0,0,0.5)" || (e.currentTarget.style.opacity="1")}
-                          onMouseLeave={e => e.currentTarget.style.background="rgba(0,0,0,0)" || (e.currentTarget.style.opacity="0")}>
-                          <button onClick={() => regenerateSlot(i)} style={{ ...S.btn(C.purple), padding:"6px 10px", fontSize:12 }}>↻</button>
-                          <button onClick={() => downloadOne(slot, i)} style={{ ...S.btn(C.teal), padding:"6px 10px", fontSize:12 }}>⬇</button>
+          {/* Image preview grid */}
+          {slots.some(s=>s.status!=="idle")&&(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+              {slots.map((slot,i)=>{
+                const pose=ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
+                const cc=CAT_COLORS[pose.category]||C.purple;
+                return(
+                  <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                    <div style={{aspectRatio:"3/4",background:C.surf,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {slot.status==="done"&&slot.result?(
+                        <div style={{position:"relative",width:"100%",height:"100%"}}>
+                          <img src={slot.result} alt={pose.name} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",opacity:0,display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"opacity 0.2s"}}
+                            onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
+                            <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"5px 10px",fontSize:11}}>↻ Redo</button>
+                            <button onClick={()=>{const a=document.createElement("a");a.href=slot.result;a.download=`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`;a.click();}} style={{...btn(C.teal),padding:"5px 10px",fontSize:11}}>⬇</button>
+                          </div>
                         </div>
-                      </div>
-                    ) : slot.status === "generating" ? (
-                      <div style={{ textAlign:"center", color:C.amber }}>
-                        <div style={{ fontSize:24, marginBottom:8, animation:"pulse 1s infinite" }}>⏳</div>
-                        <div style={{ fontSize:11 }}>Generating...</div>
-                      </div>
-                    ) : slot.status === "error" ? (
-                      <div style={{ textAlign:"center", padding:12 }}>
-                        <div style={{ fontSize:20, marginBottom:6 }}>❌</div>
-                        <div style={{ fontSize:10, color:C.danger, marginBottom:8, lineHeight:1.4 }}>{slot.error?.slice(0,60)}</div>
-                        <button onClick={() => regenerateSlot(i)} style={{ ...S.btn(C.purple), padding:"5px 10px", fontSize:11 }}>Retry</button>
-                      </div>
-                    ) : slot.status === "pending" ? (
-                      <div style={{ textAlign:"center", color:C.muted }}>
-                        <div style={{ fontSize:20, marginBottom:6 }}>⏸</div>
-                        <div style={{ fontSize:11 }}>Pending</div>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign:"center", color:C.muted }}>
-                        <div style={{ fontSize:28, marginBottom:8 }}>🖼</div>
-                        <div style={{ fontSize:11, lineHeight:1.5, padding:"0 8px" }}>{pose.desc.slice(0,60)}...</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Filename */}
-                  {product.name && (
-                    <div style={{ padding:"6px 12px", borderTop:`1px solid ${C.border}` }}>
-                      <div style={{ fontSize:10, color:C.muted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                        {product.name.replace(/\s+/g,"_")}_{i+1}.jpg
-                      </div>
+                      ):slot.status==="generating"?(
+                        <div style={{textAlign:"center",color:C.amber}}>
+                          <div style={{fontSize:20,marginBottom:6,animation:"spin 1s linear infinite"}}>⏳</div>
+                          <div style={{fontSize:11}}>Generating...</div>
+                        </div>
+                      ):slot.status==="error"?(
+                        <div style={{textAlign:"center",padding:10}}>
+                          <div style={{fontSize:18,marginBottom:6}}>❌</div>
+                          <div style={{fontSize:10,color:C.danger,marginBottom:6,lineHeight:1.4}}>{slot.error?.slice(0,80)}</div>
+                          <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"4px 8px",fontSize:10}}>Retry</button>
+                        </div>
+                      ):slot.status==="pending"?(
+                        <div style={{textAlign:"center",color:C.muted}}>
+                          <div style={{fontSize:18,marginBottom:4}}>⏸</div>
+                          <div style={{fontSize:10}}>Queued</div>
+                        </div>
+                      ):null}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    <div style={{padding:"8px 10px",borderTop:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:11,fontWeight:600,marginBottom:2}}>{pose.name}</div>
+                      {product.name&&<div style={{fontSize:10,color:C.muted}}>{product.name.replace(/\s+/g,"_")}_{i+1}.jpg</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
       {/* API Key Modal */}
-      {showKeyModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}
-          onClick={e => e.target===e.currentTarget && setShowKeyModal(false)}>
-          <div style={{ ...S.card, width:460, maxWidth:"90vw" }}>
-            <div style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Gemini API Key</div>
-            <div style={{ fontSize:12, color:C.muted, marginBottom:20, lineHeight:1.6 }}>
-              Uses Imagen 3 — pay per image (~$0.03/image). No daily limit since billing is enabled.<br/>
-              Get key at <span style={{ color:C.purple }}>aistudio.google.com</span> → API Keys → Create API key
+      {showKeyModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
+          onClick={e=>e.target===e.currentTarget&&setShowKeyModal(false)}>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:440,maxWidth:"90vw"}}>
+            <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Gemini API Key</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:20,lineHeight:1.6}}>
+              Uses Imagen 3 (billing enabled — ~$0.03/image, no daily limit).<br/>
+              Get key → <span style={{color:C.purple}}>aistudio.google.com</span> → API Keys → Create API key
             </div>
-            <label style={S.label}>Your Gemini API Key</label>
-            <input type="password" placeholder="AIza..." value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              style={{ ...S.input, marginBottom:16 }} />
-            <div style={{ padding:"10px 14px", background: apiKey.length > 20 ? `${C.teal}10` : `${C.amber}10`, border:`1px solid ${apiKey.length > 20 ? C.teal : C.amber}30`, borderRadius:8, fontSize:12, color: apiKey.length > 20 ? C.teal : C.amber, marginBottom:16 }}>
-              {apiKey.length > 20 ? "✓ Key entered — ready to generate" : "⚠ Enter your API key to enable image generation"}
+            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Your Gemini API Key</div>
+            <input type="password" placeholder="AIza..." value={apiKey} onChange={e=>setApiKey(e.target.value)}
+              style={{...inp,marginBottom:14,padding:"10px 12px",fontSize:13}} />
+            <div style={{padding:"10px 14px",background:apiKey.length>20?`${C.teal}15`:`${C.amber}15`,border:`1px solid ${apiKey.length>20?C.teal:C.amber}40`,borderRadius:8,fontSize:12,color:apiKey.length>20?C.teal:C.amber,marginBottom:16}}>
+              {apiKey.length>20?"✓ Key entered — reference photo analysis + image generation ready":"⚠ Enter your API key to enable all features"}
             </div>
-            <button onClick={() => setShowKeyModal(false)} style={{ ...S.btn(), width:"100%" }}>Save & Close</button>
+            <button onClick={()=>setShowKeyModal(false)} style={{...btn(C.purple),width:"100%",padding:"10px"}}>Save & Close</button>
           </div>
         </div>
       )}
 
       {/* Pose Picker Modal */}
-      {showPosePicker !== null && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}
-          onClick={e => e.target===e.currentTarget && setShowPosePicker(null)}>
-          <div style={{ ...S.card, width:680, maxWidth:"90vw", maxHeight:"80vh", display:"flex", flexDirection:"column" }}>
-            <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Select Pose — Slot {showPosePicker + 1}</div>
-            <div style={{ fontSize:12, color:C.muted, marginBottom:16 }}>50 poses across 10 categories</div>
-
-            {/* Search */}
-            <input placeholder="Search poses..." value={poseSearch} onChange={e => setPoseSearch(e.target.value)}
-              style={{ ...S.input, marginBottom:12 }} />
-
-            {/* Category filter */}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:16 }}>
-              {["All",...Object.keys(POSES)].map(cat => (
-                <button key={cat} onClick={() => setPoseCat(cat)} style={{
-                  padding:"4px 10px", borderRadius:20, border:"none", cursor:"pointer", fontSize:11, fontWeight:600, fontFamily:"inherit",
-                  background: poseCat===cat ? (CAT_COLORS[cat]||C.purple) : C.surf,
-                  color: poseCat===cat ? "#fff" : C.muted
-                }}>{cat}</button>
+      {showPosePicker!==null&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
+          onClick={e=>e.target===e.currentTarget&&setShowPosePicker(null)}>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,width:700,maxWidth:"90vw",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Select Pose — Slot {showPosePicker+1}</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:14}}>50 poses across 10 categories</div>
+            <input placeholder="Search poses..." value={poseSearch} onChange={e=>setPoseSearch(e.target.value)}
+              style={{...inp,marginBottom:12,padding:"8px 12px"}} />
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+              {["All",...Object.keys(POSES)].map(cat=>(
+                <button key={cat} onClick={()=>setPoseCat(cat)} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit",background:poseCat===cat?(CAT_COLORS[cat]||C.purple):C.surf,color:poseCat===cat?"#fff":C.muted}}>
+                  {cat}
+                </button>
               ))}
             </div>
-
-            {/* Pose list */}
-            <div style={{ overflowY:"auto", flex:1 }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                {filteredPoses.map(pose => {
-                  const isSelected = slots[showPosePicker]?.poseId === pose.id;
-                  const catColor = CAT_COLORS[pose.category] || C.purple;
-                  return (
-                    <div key={pose.id} onClick={() => {
-                        setSlots(prev => prev.map((s,i) => i===showPosePicker ? {...s, poseId:pose.id, label:pose.name} : s));
-                        setShowPosePicker(null);
-                      }}
-                      style={{ padding:"10px 14px", borderRadius:8, cursor:"pointer", border:`1px solid ${isSelected ? catColor : C.border}`, background:isSelected ? `${catColor}15` : C.surf, transition:"all 0.15s" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                        <div style={{ width:8, height:8, borderRadius:"50%", background:catColor, flexShrink:0 }} />
-                        <span style={{ fontSize:13, fontWeight:600 }}>{pose.name}</span>
-                        <span style={{ fontSize:10, color:catColor, background:`${catColor}20`, padding:"1px 6px", borderRadius:10, marginLeft:"auto" }}>{pose.category}</span>
+            <div style={{overflowY:"auto",flex:1}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {filteredPoses.map(pose=>{
+                  const sel=slots[showPosePicker]?.poseId===pose.id;
+                  const cc=CAT_COLORS[pose.category]||C.purple;
+                  return(
+                    <div key={pose.id} onClick={()=>{setSlots(p=>p.map((s,i)=>i===showPosePicker?{...s,poseId:pose.id}:s));setShowPosePicker(null);}}
+                      style={{padding:"10px 12px",borderRadius:8,cursor:"pointer",border:`1px solid ${sel?cc:C.border}`,background:sel?`${cc}15`:C.surf,transition:"all 0.15s"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                        <div style={{width:7,height:7,borderRadius:"50%",background:cc,flexShrink:0}} />
+                        <span style={{fontSize:12,fontWeight:600}}>{pose.name}</span>
+                        <span style={{fontSize:10,color:cc,background:`${cc}20`,padding:"1px 6px",borderRadius:10,marginLeft:"auto"}}>{pose.category}</span>
                       </div>
-                      <div style={{ fontSize:11, color:C.muted, lineHeight:1.4 }}>{pose.desc}</div>
+                      <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{pose.desc}</div>
                     </div>
                   );
                 })}
               </div>
             </div>
-
-            <button onClick={() => setShowPosePicker(null)} style={{ ...S.btn(C.border, true), marginTop:14, color:C.muted }}>Cancel</button>
+            <button onClick={()=>setShowPosePicker(null)} style={{...btn(C.border,true),marginTop:14,color:C.muted}}>Cancel</button>
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        * { box-sizing: border-box; }
-        input:focus, textarea:focus, select:focus { outline: 1px solid #6366f1; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #2A2A3E; border-radius: 2px; }
-        select option { background: #1A1A26; }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        *{box-sizing:border-box;}
+        input:focus,textarea:focus,select:focus{outline:1px solid #6366f1;}
+        button:disabled{opacity:0.4;cursor:not-allowed;}
+        ::-webkit-scrollbar{width:4px;}
+        ::-webkit-scrollbar-thumb{background:#252538;border-radius:2px;}
+        select option{background:#1A1A28;}
       `}</style>
     </div>
   );
