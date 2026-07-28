@@ -166,12 +166,12 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,{
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[
       {inlineData:{mimeType:mime,data:base64Image}},
       {text:"You are a product photographer's assistant analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: logo placement and size, patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, any text or branding visible\"}"}
-    ]}]})
+    ]}],generationConfig:{responseModalities:["TEXT"]}})
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
