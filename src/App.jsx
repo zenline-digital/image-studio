@@ -2,7 +2,8 @@ import { useState, useRef } from "react";
 
 const PRODUCT_TYPES = ["T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers","Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top","Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants","Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"];
 const GENDERS = ["Unisex","Men's","Women's","Youth"];
-const MODELS = ["Athletic male model, 6ft, muscular build","Athletic female model, 5'8\", lean build","Female model, 5'6\", curvy athletic build","Male model, 5'11\", slim athletic build","Young male model, 5'10\", sporty build","Young female model, 5'7\", athletic build","Mature male model, 50s, fit build","Mature female model, 50s, active build"];
+const MODELS_MALE = ["Athletic male model, 6ft, muscular build","Male model, 5'11\", slim athletic build","Young male model, 5'10\", sporty build","Mature male model, 50s, fit build","Male model, 6'1\", bodybuilder physique","Male model, 5'10\", lean runner's build"];
+const MODELS_FEMALE = ["Athletic female model, 5'8\", lean build","Female model, 5'6\", curvy athletic build","Young female model, 5'7\", athletic build","Mature female model, 50s, active build","Female model, 5'9\", tall and lean athletic build","Female model, 5'5\", strong muscular build"];
 
 const POSES = {
   Standard:[
@@ -113,16 +114,22 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,{
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[
       {inlineData:{mimeType:mime,data:base64Image}},
-      {text:"You are a product photographer's assistant. Look at this activewear product photo and write a concise design note (2-4 sentences) describing: logo placement and size, any patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, and any text or branding visible. Be specific and factual. Return only the design note text, no preamble."}
+      {text:"You are a product photographer's assistant analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: logo placement and size, patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, any text or branding visible\"}"}
     ]}]})
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
-  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  try {
+    const cleaned = text.replace(/```json\n?/g,"").replace(/```\n?/g,"").trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return { color: "", designNotes: text };
+  }
 }
 
 async function processImage(base64Data, mime) {
@@ -149,12 +156,8 @@ const LOWER_BODY = ["Leggings","Shorts","Compression Shorts","Swimwear","Track P
 
 function buildPrompt(product, pose, feedback="") {
   const {type,gender,color,brand,designNotes,lockedModel} = product;
-  const isLower = LOWER_BODY.includes(type);
   const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
-
-  let modelDesc = lockedModel || `${gModel} athletic model with muscular defined physique`;
-  if(isLower && gender!=="Women's") modelDesc += ", shirtless with bare torso";
-  if(isLower && gender==="Women's") modelDesc += ", wearing plain white sports bra on top only";
+  const modelDesc = lockedModel || `${gModel} athletic model with fit physique`;
 
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
@@ -165,17 +168,22 @@ function buildPrompt(product, pose, feedback="") {
 
   if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Match reference product exactly — same proportions, design details, fabric appearance. 3:4 portrait.${changes}`;
   if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Show exact fabric texture, weave, stitching. 3:4 portrait.${changes}`;
-  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type} — THE SHORTS/GARMENT IS THE HERO PRODUCT. ${pose.desc} ${design} ${quality} Garment must match reference exactly — same inseam length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
+  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Garment must match reference exactly — same length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
 }
 
 
 export default function App() {
   const [product,setProduct] = useState({name:"",type:"T-Shirt",gender:"Unisex",color:"",brand:"Actiwear",designNotes:"",lockedModel:""});
   const [slots,setSlots] = useState(DEFAULT_SLOTS.map(s=>({...s,status:"idle",result:null,error:null})));
-  const [apiKey,setApiKey] = useState("");
+  const [apiKey,setApiKey] = useState(()=>{
+    try{return localStorage.getItem("imageStudio_apiKey")||"";}catch{return"";}
+  });
   const [generating,setGenerating] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
+  const [imagesGenerated,setImagesGenerated] = useState(()=>{
+    try{return parseInt(localStorage.getItem("imageStudio_count")||"0");}catch{return 0;}
+  });
   const [showKeyModal,setShowKeyModal] = useState(false);
   const [showPosePicker,setShowPosePicker] = useState(null);
   const [poseSearch,setPoseSearch] = useState("");
@@ -206,8 +214,16 @@ export default function App() {
   }
 
   function randomizeModel(){
-    const m=MODELS[Math.floor(Math.random()*MODELS.length)];
+    const isFemale = product.gender === "Women's";
+    const pool = isFemale ? MODELS_FEMALE : MODELS_MALE;
+    const m = pool[Math.floor(Math.random()*pool.length)];
     setProduct(p=>({...p,lockedModel:m}));
+  }
+
+  function trackImageGenerated(){
+    const newCount = imagesGenerated + 1;
+    setImagesGenerated(newCount);
+    localStorage.setItem("imageStudio_count", String(newCount));
   }
 
   function saveLogo(){
@@ -239,8 +255,12 @@ export default function App() {
     try{
       const base64=photoToAnalyze.split(",")[1];
       const mime=photoToAnalyze.startsWith("data:image/png")?"image/png":"image/jpeg";
-      const notes=await analyzeProductPhoto(base64,mime,apiKey);
-      if(notes)setProduct(p=>({...p,designNotes:notes}));
+      const result=await analyzeProductPhoto(base64,mime,apiKey);
+      setProduct(p=>({
+        ...p,
+        designNotes: result.designNotes||p.designNotes,
+        color: result.color||p.color
+      }));
     }catch(e){alert("Analysis failed: "+e.message);}
     setAnalyzingRef(false);
   }
@@ -275,6 +295,7 @@ export default function App() {
     try{
       const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
       upd(0,{status:"done",result:await processImage(res.data,res.mime)});
+      trackImageGenerated();
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -290,6 +311,7 @@ export default function App() {
     try{
       const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime);
       upd(0,{status:"done",result:await processImage(res.data,res.mime)});
+      trackImageGenerated();
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -309,6 +331,7 @@ export default function App() {
       try{
         const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
         upd(i,{status:"done",result:await processImage(res.data,res.mime)});
+        trackImageGenerated();
       }catch(e){upd(i,{status:"error",error:e.message});}
     }
     setGenerating(false);
@@ -356,9 +379,14 @@ export default function App() {
             <div style={{fontSize:11,color:C.muted}}>Actiwear · SM</div>
           </div>
         </div>
-        <button onClick={()=>setShowKeyModal(true)} style={{...btn(apiKey.length>20?C.teal:C.purple),fontSize:11,display:"flex",alignItems:"center",gap:6}}>
-          🔑 {apiKey.length>20?"✓ API Key Set":"Add API Key"}
-        </button>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:11,color:C.muted,background:C.card,padding:"5px 12px",borderRadius:20,border:`1px solid ${C.border}`}}>
+            💰 {imagesGenerated} images · ~${(imagesGenerated*0.0336).toFixed(3)} spent
+          </div>
+          <button onClick={()=>setShowKeyModal(true)} style={{...btn(apiKey.length>20?C.teal:C.purple),fontSize:11,display:"flex",alignItems:"center",gap:6}}>
+            🔑 {apiKey.length>20?"✓ API Key Set":"Add API Key"}
+          </button>
+        </div>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:0,height:"calc(100vh - 57px)",overflow:"hidden"}}>
@@ -661,7 +689,7 @@ export default function App() {
             <div style={{padding:"10px 14px",background:apiKey.length>20?`${C.teal}15`:`${C.amber}15`,border:`1px solid ${apiKey.length>20?C.teal:C.amber}40`,borderRadius:8,fontSize:12,color:apiKey.length>20?C.teal:C.amber,marginBottom:16}}>
               {apiKey.length>20?"✓ Key entered — reference photo analysis + image generation ready":"⚠ Enter your API key to enable all features"}
             </div>
-            <button onClick={()=>setShowKeyModal(false)} style={{...btn(C.purple),width:"100%",padding:"10px"}}>Save & Close</button>
+            <button onClick={()=>{localStorage.setItem("imageStudio_apiKey",apiKey);setShowKeyModal(false);}} style={{...btn(C.purple),width:"100%",padding:"10px"}}>Save & Close</button>
           </div>
         </div>
       )}
