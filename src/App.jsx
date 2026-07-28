@@ -140,12 +140,37 @@ async function processImage(base64Data, mime) {
       const canvas=document.createElement("canvas");
       canvas.width=W; canvas.height=H;
       const ctx=canvas.getContext("2d");
-      ctx.fillStyle="#FFFFFF"; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle="#FFFFFF";
+      ctx.fillRect(0,0,W,H);
       const scale=Math.min((W-PAD*2)/img.width,(H-PAD*2)/img.height);
       const sw=img.width*scale,sh=img.height*scale;
-      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality="high";
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality="high";
       ctx.drawImage(img,(W-sw)/2,(H-sh)/2,sw,sh);
-      resolve(canvas.toDataURL("image/jpeg",0.95));
+
+      // Flood-fill background to pure white from corners
+      const imageData=ctx.getImageData(0,0,W,H);
+      const d=imageData.data;
+      const visited=new Uint8Array(W*H);
+      const isBg=(i)=>d[i]>200&&d[i+1]>200&&d[i+2]>200;
+      const queue=[];
+      [[0,0],[W-1,0],[0,H-1],[W-1,H-1],[W>>1,0],[0,H>>1],[W-1,H>>1],[W>>1,H-1]].forEach(([x,y])=>{
+        const p=y*W+x; if(!visited[p]&&isBg(p*4)){visited[p]=1;queue.push(p);}
+      });
+      while(queue.length){
+        const pos=queue.pop(); const px=pos*4;
+        d[px]=255;d[px+1]=255;d[px+2]=255;
+        const x=pos%W,y=Math.floor(pos/W);
+        for(const[dx,dy]of[[0,-1],[0,1],[-1,0],[1,0]]){
+          const nx=x+dx,ny=y+dy;
+          if(nx>=0&&nx<W&&ny>=0&&ny<H){
+            const np=ny*W+nx;
+            if(!visited[np]&&isBg(np*4)){visited[np]=1;queue.push(np);}
+          }
+        }
+      }
+      ctx.putImageData(imageData,0,0);
+      resolve(canvas.toDataURL("image/jpeg",0.97));
     };
     img.onerror=reject;
     img.src=`data:${mime};base64,${base64Data}`;
@@ -158,6 +183,7 @@ function buildPrompt(product, pose, feedback="") {
   const {type,gender,color,brand,designNotes,lockedModel} = product;
   const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
   const modelDesc = lockedModel || `${gModel} athletic model with fit physique`;
+  const modelNote = `IMPORTANT: The model in this photo must be a completely different person from any reference image provided — different face, different skin tone, different nationality. Use a professional studio model.`;
 
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
@@ -168,7 +194,7 @@ function buildPrompt(product, pose, feedback="") {
 
   if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Match reference product exactly — same proportions, design details, fabric appearance. 3:4 portrait.${changes}`;
   if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Show exact fabric texture, weave, stitching. 3:4 portrait.${changes}`;
-  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Garment must match reference exactly — same length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
+  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${modelNote} ${pose.desc} ${design} ${quality} Garment must match reference exactly — same length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
 }
 
 
