@@ -165,9 +165,9 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
   throw new Error("No image returned — check your API key and billing");
 }
 
-async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  // Use Claude API (already connected) instead of Gemini for vision analysis
-  const r = await fetch("/api/claude", {
+async function analyzeProductPhoto(base64Image, mime) {
+  // Use ZenLine Digital's Claude proxy — already working, no extra setup needed
+  const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -371,7 +371,7 @@ export default function App() {
     try{
       const base64=photoToAnalyze.split(",")[1];
       const mime=photoToAnalyze.startsWith("data:image/png")?"image/png":"image/jpeg";
-      const result=await analyzeProductPhoto(base64,mime,apiKey);
+      const result=await analyzeProductPhoto(base64,mime);
       setProduct(p=>({
         ...p,
         designNotes: result.designNotes||p.designNotes,
