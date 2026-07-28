@@ -91,11 +91,19 @@ const DEFAULT_SLOTS = [
 
 const C = {bg:"#0D0D14",surf:"#13131E",card:"#1A1A28",border:"#252538",purple:"#6366f1",teal:"#10b981",amber:"#f59e0b",danger:"#ef4444",text:"#F0F0F8",muted:"#6B7090"};
 
-async function generateImage(prompt, apiKey) {
-  // Primary: Gemini Flash Lite image (confirmed working)
+async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) {
+  // Build content parts — include reference image if provided
+  const parts = [];
+  if(refImageBase64 && refMime){
+    parts.push({inlineData:{mimeType:refMime, data:refImageBase64}});
+    parts.push({text:`Using this reference product photo for exact design accuracy, generate a new professional product photo: ${prompt}`});
+  } else {
+    parts.push({text:prompt});
+  }
+
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
     method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
+    body:JSON.stringify({contents:[{parts}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
@@ -105,11 +113,11 @@ async function generateImage(prompt, apiKey) {
 }
 
 async function analyzeProductPhoto(base64Image, mime, apiKey) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,{
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[
       {inlineData:{mimeType:mime,data:base64Image}},
-      {text:"You are a product photographer's assistant. Look at this activewear product photo and write a concise design note (2-4 sentences) describing: logo placement and size, any patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, etc.), and any text or branding visible. Be specific and factual. Return only the design note text, no preamble."}
+      {text:"You are a product photographer's assistant. Look at this activewear product photo and write a concise design note (2-4 sentences) describing: logo placement and size, any patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, and any text or branding visible. Be specific and factual. Return only the design note text, no preamble."}
     ]}]})
   });
   const d = await r.json();
@@ -137,16 +145,29 @@ async function processImage(base64Data, mime) {
   });
 }
 
-function buildPrompt(product, pose) {
-  const {name,type,gender,color,brand,designNotes,lockedModel} = product;
+const LOWER_BODY = ["Leggings","Shorts","Compression Shorts","Swimwear","Track Pants","Joggers"];
+
+function buildPrompt(product, pose, feedback="") {
+  const {type,gender,color,brand,designNotes,lockedModel} = product;
+  const isLower = LOWER_BODY.includes(type);
   const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
-  const modelDesc = lockedModel || `${gModel} athletic model`;
+
+  let modelDesc = lockedModel || `${gModel} athletic model with muscular defined physique`;
+  if(isLower && gender!=="Women's") modelDesc += ", shirtless with bare torso";
+  if(isLower && gender==="Women's") modelDesc += ", wearing plain white sports bra on top only";
+
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
-  if(isFlat) return `Professional product photography flat lay: ${color} ${brand} ${type}. ${pose.desc} Pure white background #FFFFFF. Sharp focus, even studio lighting, no shadows. Marketplace listing quality, Amazon standard, 3:4 portrait.${designNotes?` Design: ${designNotes}.`:""}`;
-  if(isDetail) return `Extreme close-up product photography: ${color} ${brand} ${type}. ${pose.desc} Pure white background. Macro studio lighting, razor-sharp focus. High-end activewear brand quality. 3:4 portrait.${designNotes?` Design: ${designNotes}.`:""}`;
-  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc} Pure white background #FFFFFF, full body visible, clean studio lighting, no shadows on background. Model face neutral/confident. Marketplace listing quality, Amazon/Noon standard. 3:4 portrait aspect ratio.${designNotes?` Product design: ${designNotes}.`:""}`;
+
+  const quality = `PURE BRIGHT WHITE background #FFFFFF only — no shadows on background, perfectly even studio lighting. Ultra-sharp focus, high resolution. Premium quality for brand website hero images and marketplace listings (Noon, Amazon standard).`;
+  const design = designNotes ? `Exact product design to replicate precisely: ${designNotes}` : "";
+  const changes = feedback ? ` CHANGES REQUESTED: ${feedback}` : "";
+
+  if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Match reference product exactly — same proportions, design details, fabric appearance. 3:4 portrait.${changes}`;
+  if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Show exact fabric texture, weave, stitching. 3:4 portrait.${changes}`;
+  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type} — THE SHORTS/GARMENT IS THE HERO PRODUCT. ${pose.desc} ${design} ${quality} Garment must match reference exactly — same inseam length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
 }
+
 
 export default function App() {
   const [product,setProduct] = useState({name:"",type:"T-Shirt",gender:"Unisex",color:"",brand:"Actiwear",designNotes:"",lockedModel:""});
@@ -233,6 +254,14 @@ export default function App() {
     reader.readAsDataURL(file);
   }
 
+  function getRefData(){
+    const refUrl = refs.front || refs.back;
+    if(!refUrl) return {base64:null, mime:null};
+    const base64 = refUrl.split(",")[1];
+    const mime = refUrl.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+    return {base64, mime};
+  }
+
   async function generateSample(){
     if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
     if(!product.name.trim()){alert("Enter a product name first");return;}
@@ -242,9 +271,10 @@ export default function App() {
     setGenerating(true);
     setSlots(p=>p.map((s,i)=>i===0?{...s,status:"generating",result:null,error:null}:{...s,status:"idle",result:null,error:null}));
     const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
+    const {base64,mime}=getRefData();
     try{
-      const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
-      upd(0,{status:"done",result:await processImage(data,mime)});
+      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+      upd(0,{status:"done",result:await processImage(res.data,res.mime)});
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -256,10 +286,10 @@ export default function App() {
     setGenerating(true);
     upd(0,{status:"generating",result:null,error:null});
     const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
-    const feedbackNote=sampleFeedback?`\nIMPORTANT CHANGES REQUESTED: ${sampleFeedback}`:"";
+    const {base64,mime}=getRefData();
     try{
-      const {data,mime}=await generateImage(buildPrompt(product,pose)+feedbackNote,apiKey);
-      upd(0,{status:"done",result:await processImage(data,mime)});
+      const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime);
+      upd(0,{status:"done",result:await processImage(res.data,res.mime)});
       setSampleDone(true);
     }catch(e){upd(0,{status:"error",error:e.message});}
     setGenerating(false);
@@ -270,15 +300,15 @@ export default function App() {
     if(!product.name.trim()){alert("Enter a product name first");return;}
     stopRef.current=false;
     setGenerating(true);
-    // Keep slot 0 as-is (already generated), generate 1-7
+    const {base64,mime}=getRefData();
     setSlots(p=>p.map((s,i)=>i===0?s:{...s,status:"pending",result:null,error:null}));
     for(let i=1;i<slots.length;i++){
       if(stopRef.current){upd(i,{status:"idle"});continue;}
       upd(i,{status:"generating"});
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
       try{
-        const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
-        upd(i,{status:"done",result:await processImage(data,mime)});
+        const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+        upd(i,{status:"done",result:await processImage(res.data,res.mime)});
       }catch(e){upd(i,{status:"error",error:e.message});}
     }
     setGenerating(false);
@@ -288,9 +318,10 @@ export default function App() {
     if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
     upd(i,{status:"generating",error:null});
     const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
+    const {base64,mime}=getRefData();
     try{
-      const {data,mime}=await generateImage(buildPrompt(product,pose),apiKey);
-      upd(i,{status:"done",result:await processImage(data,mime)});
+      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+      upd(i,{status:"done",result:await processImage(res.data,res.mime)});
     }catch(e){upd(i,{status:"error",error:e.message});}
   }
 
