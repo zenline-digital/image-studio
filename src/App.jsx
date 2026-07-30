@@ -357,14 +357,35 @@ async function processImage(base64Data, mime) {
       ctx.imageSmoothingQuality="high";
       ctx.drawImage(img,(W-sw)/2,(H-sh)/2,sw,sh);
 
-      // Flood-fill background to pure white from corners
       const imageData=ctx.getImageData(0,0,W,H);
       const d=imageData.data;
+
+      // Detect background type from corner pixels
+      const cornerIdx = [0, (W-1)*4, (H-1)*W*4, ((H-1)*W+(W-1))*4];
+      let cornerR=0, cornerG=0, cornerB=0;
+      cornerIdx.forEach(i=>{ cornerR+=d[i]; cornerG+=d[i+1]; cornerB+=d[i+2]; });
+      cornerR=Math.round(cornerR/4); cornerG=Math.round(cornerG/4); cornerB=Math.round(cornerB/4);
+
+      // If corners are gray (not white), it's a white garment on gray bg
+      const isGrayBg = cornerR < 240 && Math.abs(cornerR-cornerG)<15 && Math.abs(cornerG-cornerB)<15;
+
+      // Set threshold based on background type
+      // For gray backgrounds: flood pixels similar to corner color
+      // For white backgrounds: only flood very light pixels (conservative to preserve white fabric)
+      const threshold = isGrayBg ? 30 : 20; // tolerance around detected background color
+
       const visited=new Uint8Array(W*H);
-      const isBg=(i)=>d[i]>200&&d[i+1]>200&&d[i+2]>200;
+      const isBg=(i)=>{
+        return Math.abs(d[i]-cornerR) < threshold &&
+               Math.abs(d[i+1]-cornerG) < threshold &&
+               Math.abs(d[i+2]-cornerB) < threshold;
+      };
+
       const queue=[];
-      [[0,0],[W-1,0],[0,H-1],[W-1,H-1],[W>>1,0],[0,H>>1],[W-1,H>>1],[W>>1,H-1]].forEach(([x,y])=>{
-        const p=y*W+x; if(!visited[p]&&isBg(p*4)){visited[p]=1;queue.push(p);}
+      // Only flood from 4 true corners — safer than 8 points
+      [[0,0],[W-1,0],[0,H-1],[W-1,H-1]].forEach(([x,y])=>{
+        const p=y*W+x;
+        if(!visited[p]&&isBg(p*4)){visited[p]=1;queue.push(p);}
       });
       while(queue.length){
         const pos=queue.pop(); const px=pos*4;
@@ -399,8 +420,8 @@ function buildPrompt(product, pose, feedback="") {
   const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
 
   const quality = isWhiteGarment
-    ? `Background: PURE WHITE #FFFFFF. IMPORTANT FOR WHITE GARMENT: Use soft directional studio lighting — do NOT overexpose the white fabric. The garment must be clearly differentiated from the white background through subtle shadows, fabric depth, and texture visibility. Show the fabric pattern and texture clearly using controlled lighting with gentle shadows at the garment edges to define its shape. The fabric details, texture, and design must be fully visible and not washed out.`
-    : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients, no texture. Studio lighting: perfectly even, no hotspots. Output: ultra-sharp, high resolution, suitable for Noon/Amazon marketplace and brand website hero images.`;
+    ? `BACKGROUND: Use a LIGHT NEUTRAL GRAY background (#CCCCCC / RGB 204,204,204) — NOT white. This is essential so the white garment is clearly differentiated from the background. The background will be replaced with pure white in post-production. Studio lighting: soft even light, no harsh shadows. Show full fabric texture, mesh pattern, and all design details clearly — do not overexpose. The garment must be sharp and detailed with visible texture.`
+    : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
 
   const logoInstructions = `LOGO RULE: The reference product photo shows a specific logo. You MUST copy that EXACT logo from the reference photo onto the generated garment — same shape, same size (small, approximately 1 inch), same position. Do NOT invent, redesign, or replace the logo with anything else. If a separate logo image is provided, use that logo instead.`;
 
