@@ -313,6 +313,8 @@ async function enhanceImage(imageDataUrl, scale=1.5) {
     img.src = imageDataUrl;
   });
 }
+
+async function analyzeProductPhoto(base64Image, mime) {
   const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
