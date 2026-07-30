@@ -368,6 +368,8 @@ export default function App() {
   const [generating,setGenerating] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
+  const [modelPreview,setModelPreview] = useState(null);
+  const [modelPreviewLoading,setModelPreviewLoading] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [gallery, setGallery] = useState([]);
   const [gallerySearch, setGallerySearch] = useState("");
@@ -376,13 +378,22 @@ export default function App() {
   useEffect(() => { loadGallery(); }, []);
 
   async function loadGallery() {
-    // Load from Supabase (shared across all team members)
+    // Try Supabase first (shared gallery)
     try {
       const rows = await supaGalleryLoad();
-      if (Array.isArray(rows)) setGallery(rows);
+      // If Supabase returns error object or non-array, fall through to IndexedDB
+      if (!Array.isArray(rows)) throw new Error("Supabase table missing — run SQL in settings");
+      setGallery(rows);
+      return;
     } catch(e) {
-      // Fallback to local IndexedDB if Supabase fails
-      try { setGallery(await dbGetAll()); } catch {}
+      console.log("Supabase gallery failed, loading from local:", e.message);
+    }
+    // Fallback: local IndexedDB
+    try {
+      const local = await dbGetAll();
+      if (Array.isArray(local)) setGallery(local);
+    } catch(e) {
+      console.log("IndexedDB also failed:", e.message);
     }
   }
 
@@ -449,11 +460,25 @@ export default function App() {
     }));
   }
 
-  function randomizeModel(){
+  async function randomizeModel(){
     const isFemale = product.gender === "Women's";
     const pool = isFemale ? MODELS_FEMALE : MODELS_MALE;
     const m = pool[Math.floor(Math.random()*pool.length)];
     setProduct(p=>({...p,lockedModel:m}));
+    setModelPreview(null);
+
+    // Generate a quick preview portrait of this model
+    if(apiKey && apiKey.length > 20){
+      setModelPreviewLoading(true);
+      try{
+        const previewPrompt = `Professional studio portrait of a ${m}. Plain white background. Neutral expression, looking at camera. Upper body only, cropped at waist. High quality, realistic photography. Suitable for activewear brand usage.`;
+        const res = await generateImage(previewPrompt, apiKey);
+        // Create small thumbnail from the result
+        const thumb = await toThumbnail(`data:${res.mime};base64,${res.data}`);
+        setModelPreview(thumb);
+      }catch(e){ console.log("Model preview failed:", e.message); }
+      setModelPreviewLoading(false);
+    }
   }
 
   function trackImageGenerated(){
@@ -726,19 +751,33 @@ export default function App() {
             </div>
           </div>
 
-          {/* Model */}
           <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:14}}>👤</span>
                 <span style={{fontWeight:600,fontSize:13}}>Model</span>
               </div>
-              <button onClick={randomizeModel} style={{...btn(C.border,true),padding:"4px 10px",fontSize:11,color:C.muted}}>↺ Randomize</button>
+              <button onClick={randomizeModel} disabled={modelPreviewLoading} style={{...btn(C.border,true),padding:"4px 10px",fontSize:11,color:C.muted}}>
+                {modelPreviewLoading?"⏳ Previewing...":"↺ Randomize"}
+              </button>
             </div>
+
+            {/* Model preview */}
+            {modelPreviewLoading && (
+              <div style={{padding:"10px",textAlign:"center",color:C.muted,fontSize:11,marginBottom:8}}>
+                Generating model preview...
+              </div>
+            )}
+            {modelPreview && !modelPreviewLoading && (
+              <div style={{marginBottom:8,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"3/4",maxHeight:160}}>
+                <img src={modelPreview} alt="Model preview" style={{width:"100%",height:"100%",objectFit:"cover"}} />
+              </div>
+            )}
+
             {product.lockedModel
-              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`}}>🔒 {product.lockedModel}</div>
-              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Click Randomize to lock a consistent model for all 8 images. Leave blank to let AI choose.</div>}
-            {product.lockedModel&&<button onClick={()=>setProduct(p=>({...p,lockedModel:""}))} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:6}}>✕ Clear</button>}
+              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`,lineHeight:1.5}}>{product.lockedModel}</div>
+              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Click Randomize to pick a model and see a preview. Same model will be used for all 8 images.</div>}
+            {product.lockedModel&&<button onClick={()=>{setProduct(p=>({...p,lockedModel:""}));setModelPreview(null);}} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:6}}>✕ Clear</button>}
           </div>
 
           {/* Reference photos */}
