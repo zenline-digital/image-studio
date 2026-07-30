@@ -167,11 +167,11 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null, 
   const parts = [];
   if(refImageBase64 && refMime){
     parts.push({inlineData:{mimeType:refMime, data:refImageBase64}});
-    parts.push({text:"THIS IS THE REFERENCE PRODUCT. Study every detail: fabric pattern, texture, logo shape and position, seam lines, piping color, garment length and fit. You MUST replicate all of these exactly on the generated garment. Do NOT copy the person/model from this photo."});
+    parts.push({text:"REFERENCE PRODUCT PHOTO: This is the exact garment to keep in the new image. Keep every detail of the garment identical. Only replace the model/person."});
   }
   if(logoBase64 && logoMime){
     parts.push({inlineData:{mimeType:logoMime, data:logoBase64}});
-    parts.push({text:"BRAND LOGO — place this exact logo on the garment. Keep it small (no larger than 3cm in real life). Match position to reference product if shown, or place on left chest/left hip."});
+    parts.push({text:"BRAND LOGO: If replacing the logo, use exactly this logo image. Keep it small, same position as reference."});
   }
   parts.push({text: prompt});
 
@@ -421,65 +421,50 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
   });
 }
 
-const LOWER_BODY = ["Leggings","Shorts","Compression Shorts","Swimwear","Track Pants","Joggers"];
-
-function buildPrompt(product, pose, feedback="") {
+function buildPrompt(product, pose, feedback="", hasReference=false) {
   const {type,gender,color,brand,designNotes,lockedModel} = product;
   const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
-  const modelDesc = lockedModel || `${gModel} athletic model with fit physique`;
+  const modelDesc = lockedModel || `${gModel} athletic model with fit physique, European or Mediterranean features`;
 
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
+  const isBack = ["back_view","back_hips","back_right","back_left","flat_back"].includes(pose.id);
 
-  const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
+  const changes = feedback ? `\nADDITIONAL CHANGES: ${feedback}` : "";
 
-  const quality = isWhiteGarment
-    ? `BACKGROUND: Very light gray (#DDDDDD) to differentiate from white garment.
-CRITICAL LIGHTING FOR WHITE GARMENT: Use pure flat front-facing diffused lighting — like a large lightbox or ring flash directly in front. The white fabric must appear UNIFORMLY BRIGHT WHITE with ZERO gray patches, ZERO shadow areas, ZERO lighting gradients anywhere on the garment. No side lighting, no Rembrandt lighting, no dramatic shadows. Think: product flat lay lighting applied to model shot. The garment should look like it is self-luminous — no shadows of any kind on the white fabric surface.`
-    : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
+  // When reference photo is provided: image-editing approach (most accurate)
+  if(hasReference && !isFlat && !isDetail) {
+    return `You are given a product photo of someone wearing a ${color} ${brand} ${type}.
 
-  // Logo only goes on front-facing views, not back views
-  const isBackView = pose.id === "back_view" || pose.id === "back_hips" || pose.id === "back_right" || pose.id === "back_left" || pose.id === "flat_back";
-  const logoInstructions = isBackView
-    ? `LOGO RULE: This is a BACK VIEW. Do NOT place any logo on the back unless the design notes explicitly say the back has a logo. The back of this garment is clean/plain.`
-    : `LOGO RULE: The reference product photo shows a specific logo on the FRONT. Copy that EXACT logo — same shape, same size (small, approximately 1 inch), centered on chest. Do NOT invent or redesign the logo. If a separate logo image is provided, use that exact logo.`;
+TASK: Create a new professional product photo keeping the GARMENT COMPLETELY IDENTICAL.
 
-  const designBlock = designNotes
-    ? `MANDATORY DESIGN DETAILS — every point below is required in the output:
-${designNotes}
-Do not omit or change any of these details. The generated garment must include all of the above exactly.`
-    : "";
+WHAT TO KEEP EXACTLY THE SAME (do not change ANY of these):
+- The ${color} ${brand} ${type} — every single detail: fabric texture, pattern, logo position and size, seams, neckline, hem, fit, length, color
+- Studio lighting style
+- ${isBack ? "Back view pose" : "Front facing pose similar to reference"}
+- Pure white background #FFFFFF
 
-  const changes = feedback ? `\nCHANGES REQUESTED BY USER: ${feedback}` : "";
+ONLY CHANGE THIS:
+- Replace the model with: ${modelDesc}
+- The new model must be a completely different person — different face, different skin, different hair
+- Model should have neutral confident expression, professional athletic posture
 
-  if(isFlat) return `Professional product flat lay photography.
-Garment: ${color} ${brand} ${type}
-Pose: ${pose.desc}
-${designBlock}
-${logoInstructions}
-${quality}
-Replicate every design detail from the reference photo exactly. 3:4 portrait aspect ratio.${changes}`;
+Background: PURE WHITE #FFFFFF. No shadows. High resolution, marketplace quality.${changes}`;
+  }
 
-  if(isDetail) return `Extreme close-up product photography.
-Garment: ${color} ${brand} ${type}
-Focus: ${pose.desc}
-${designBlock}
-${quality}
-Show exact fabric texture, weave structure, stitching precision as in reference. 3:4 portrait.${changes}`;
+  // Flat lay — no model needed
+  if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc}${designNotes?` Design details: ${designNotes}.`:""} Pure white background #FFFFFF. Sharp overhead studio lighting, no shadows. Marketplace listing quality. 3:4 portrait.${changes}`;
 
-  return `Professional activewear product photography for marketplace listing.
+  // Detail close-up
+  if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc}${designNotes?` Design: ${designNotes}.`:""} Pure white background. Macro studio lighting, razor sharp focus on fabric texture and detail. 3:4 portrait.${changes}`;
 
-MODEL: ${modelDesc}. This must be a DIFFERENT person from anyone in the reference photo — different face, different skin tone, different nationality. Professional studio model only.
+  // No reference — text-only generation
+  const isWhite = color.toLowerCase().includes("white")||color.toLowerCase().includes("cream")||color.toLowerCase().includes("ivory");
+  const bgInstr = isWhite
+    ? "Background: light gray #DDDDDD (will be replaced with white in post-processing). Flat even lighting, no shadows on white fabric."
+    : "Background: PURE WHITE #FFFFFF. Even studio lighting.";
 
-GARMENT: The model is wearing a ${color} ${brand} ${type}. Replicate this garment from the reference photo with 100% design accuracy:
-${designBlock}
-${logoInstructions}
-
-POSE: ${pose.desc}
-
-TECHNICAL: ${quality}
-
-Full body visible. Model face neutral, confident. Garment is the hero — it must match the reference exactly in fabric, pattern, logo, seams, fit, and length. 3:4 portrait.${changes}`;
+  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc}${designNotes?`\nProduct design: ${designNotes}.`:""}\n${bgInstr}\nFull body visible. Neutral confident expression. High resolution marketplace quality. 3:4 portrait.${changes}`;
 }
 
 
@@ -789,7 +774,7 @@ export default function App() {
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
       const isWPs=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
-      const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
+      const res=await generateImage(buildPrompt(sessionProduct,pose,"",!!(base64)),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime,isWPs);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
@@ -809,7 +794,7 @@ export default function App() {
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
       const isWP2=product.color.toLowerCase().includes('white')||product.color.toLowerCase().includes('cream')||product.color.toLowerCase().includes('ivory');
-      const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime,logoB64,logoMime);
+      const res=await generateImage(buildPrompt(product,pose,sampleFeedback,!!(base64)),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime,isWP2);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
@@ -836,7 +821,7 @@ export default function App() {
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
       try{
         const isWP=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
-        const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
+        const res=await generateImage(buildPrompt(sessionProduct,pose,"",!!(base64)),apiKey,base64,mime,logoB64,logoMime);
         const processed=await processImage(res.data,res.mime,isWP);
         upd(i,{status:"done",result:processed});
         trackImageGenerated();
@@ -857,7 +842,7 @@ export default function App() {
     const {base64,mime}=getRefData();
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
-      const res=await generateImage(buildPrompt(product,pose,feedback),apiKey,base64,mime,logoB64,logoMime);
+      const res=await generateImage(buildPrompt(product,pose,feedback,!!(base64)),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime,product.color.toLowerCase().includes("white")||product.color.toLowerCase().includes("cream")||product.color.toLowerCase().includes("ivory"));
       upd(i,{status:"done",result:processed});
       trackImageGenerated();
