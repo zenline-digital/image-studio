@@ -54,8 +54,27 @@ async function dbClear() {
 
 const PRODUCT_TYPES = ["T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers","Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top","Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants","Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"];
 const GENDERS = ["Unisex","Men's","Women's","Youth"];
-const MODELS_MALE = ["Athletic male model, 6ft, muscular build","Male model, 5'11\", slim athletic build","Young male model, 5'10\", sporty build","Mature male model, 50s, fit build","Male model, 6'1\", bodybuilder physique","Male model, 5'10\", lean runner's build"];
-const MODELS_FEMALE = ["Athletic female model, 5'8\", lean build","Female model, 5'6\", curvy athletic build","Young female model, 5'7\", athletic build","Mature female model, 50s, active build","Female model, 5'9\", tall and lean athletic build","Female model, 5'5\", strong muscular build"];
+const MODELS_MALE = [
+  "Athletic European male model, 6ft 1in, lean muscular physique, chiseled jawline, short dark hair, Mediterranean complexion",
+  "Athletic Middle Eastern male model, 6ft, muscular athletic build, strong jaw, dark short hair, olive skin tone",
+  "Athletic Latin male model, 6ft, defined muscular physique, sharp features, dark hair, light olive skin",
+  "Athletic European male model, 6ft 2in, bodybuilder physique, wide shoulders, blond short hair, fair skin",
+  "Athletic male model, 5ft 11in, lean runner physique, Mediterranean features, dark stubble, olive complexion",
+  "Athletic European male model, 6ft, V-taper muscular build, square jaw, brown short hair, fair complexion",
+  "Athletic male model, 6ft 1in, powerlifter build, strong broad shoulders, light stubble, Mediterranean skin tone",
+  "Athletic male model, 6ft, defined abs and arms, sharp European features, clean shaven, olive skin",
+];
+
+const MODELS_FEMALE = [
+  "Athletic European female model, 5ft 9in, lean toned physique, high cheekbones, long dark hair, fair skin",
+  "Athletic Middle Eastern female model, 5ft 8in, toned athletic build, dark long hair, olive skin tone",
+  "Athletic Latin female model, 5ft 8in, lean toned physique, long dark hair, warm olive complexion",
+  "Athletic European female model, 5ft 10in, slim toned build, blonde hair, sharp features, fair skin",
+  "Athletic female model, 5ft 7in, strong toned legs and arms, Mediterranean features, dark wavy hair",
+  "Athletic European female model, 5ft 9in, lean muscular physique, brown hair, light olive skin, sharp jaw",
+  "Athletic female model, 5ft 8in, defined athletic build, long dark hair, European features, fair complexion",
+  "Athletic female model, 5ft 10in, model physique, high cheekbones, straight dark hair, olive skin",
+];
 
 const POSES = {
   Standard:[
@@ -316,7 +335,11 @@ function buildPrompt(product, pose, feedback="") {
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
 
-  const quality = `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients, no texture. Studio lighting: perfectly even, no hotspots. Output: ultra-sharp, high resolution, suitable for Noon/Amazon marketplace and brand website hero images.`;
+  const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
+
+  const quality = isWhiteGarment
+    ? `Background: PURE WHITE #FFFFFF. IMPORTANT FOR WHITE GARMENT: Use soft directional studio lighting — do NOT overexpose the white fabric. The garment must be clearly differentiated from the white background through subtle shadows, fabric depth, and texture visibility. Show the fabric pattern and texture clearly using controlled lighting with gentle shadows at the garment edges to define its shape. The fabric details, texture, and design must be fully visible and not washed out.`
+    : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients, no texture. Studio lighting: perfectly even, no hotspots. Output: ultra-sharp, high resolution, suitable for Noon/Amazon marketplace and brand website hero images.`;
 
   const logoInstructions = `LOGO RULE: The reference product photo shows a specific logo. You MUST copy that EXACT logo from the reference photo onto the generated garment — same shape, same size (small, approximately 1 inch), same position. Do NOT invent, redesign, or replace the logo with anything else. If a separate logo image is provided, use that logo instead.`;
 
@@ -775,9 +798,22 @@ export default function App() {
             )}
 
             {product.lockedModel
-              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`,lineHeight:1.5}}>{product.lockedModel}</div>
-              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Click Randomize to pick a model and see a preview. Same model will be used for all 8 images.</div>}
-            {product.lockedModel&&<button onClick={()=>{setProduct(p=>({...p,lockedModel:""}));setModelPreview(null);}} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:6}}>✕ Clear</button>}
+              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`,lineHeight:1.5,marginBottom:6}}>{product.lockedModel}</div>
+              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:6}}>Click Randomize to pick a model and see a preview. Same model used for all 8 images.</div>}
+
+            {/* Custom model input */}
+            <div style={{marginTop:6}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Or paste your own model description:</div>
+              <textarea
+                placeholder="e.g. Athletic European male model, 6ft 2in, lean muscular physique, dark short hair, olive skin..."
+                rows={2}
+                style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 9px",color:C.text,fontSize:11,resize:"vertical",fontFamily:"inherit",lineHeight:1.5,boxSizing:"border-box"}}
+                onBlur={e=>{if(e.target.value.trim())setProduct(p=>({...p,lockedModel:e.target.value.trim()}));}}
+                defaultValue=""
+              />
+            </div>
+
+            {product.lockedModel&&<button onClick={()=>{setProduct(p=>({...p,lockedModel:""}));setModelPreview(null);}} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:4}}>✕ Clear</button>}
           </div>
 
           {/* Reference photos */}
