@@ -325,7 +325,7 @@ async function analyzeProductPhoto(base64Image, mime) {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: mime, data: base64Image } },
-          { type: "text", text: "You are analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: logo placement and size, patterns or graphics, special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type), fabric texture, any text or branding visible\"}" }
+          { type: "text", text: "You are analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: (1) logo placement — specify exactly where it appears: front chest only, front and back, sleeve, etc. and its size; (2) patterns or graphics visible; (3) special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type, piping); (4) fabric texture and construction\"}" }
         ]
       }]
     })
@@ -353,37 +353,35 @@ async function processImage(base64Data, mime) {
       ctx.fillRect(0,0,W,H);
       const scale=Math.min((W-PAD*2)/img.width,(H-PAD*2)/img.height);
       const sw=img.width*scale,sh=img.height*scale;
+      const ox=Math.round((W-sw)/2), oy=Math.round((H-sh)/2);
       ctx.imageSmoothingEnabled=true;
       ctx.imageSmoothingQuality="high";
-      ctx.drawImage(img,(W-sw)/2,(H-sh)/2,sw,sh);
+      ctx.drawImage(img,ox,oy,sw,sh);
 
       const imageData=ctx.getImageData(0,0,W,H);
       const d=imageData.data;
 
-      // Detect background type from corner pixels
-      const cornerIdx = [0, (W-1)*4, (H-1)*W*4, ((H-1)*W+(W-1))*4];
-      let cornerR=0, cornerG=0, cornerB=0;
-      cornerIdx.forEach(i=>{ cornerR+=d[i]; cornerG+=d[i+1]; cornerB+=d[i+2]; });
-      cornerR=Math.round(cornerR/4); cornerG=Math.round(cornerG/4); cornerB=Math.round(cornerB/4);
+      // Sample background from IMAGE CONTENT corners (not canvas corners which are white padding)
+      const sx0=ox+4, sy0=oy+4;
+      const sx1=Math.min(ox+Math.round(sw)-5, W-5);
+      const sy1=Math.min(oy+Math.round(sh)-5, H-5);
+      const samples=[[sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
+      let rSum=0,gSum=0,bSum=0;
+      samples.forEach(([x,y])=>{const i=(y*W+x)*4; rSum+=d[i];gSum+=d[i+1];bSum+=d[i+2];});
+      const bgR=Math.round(rSum/4), bgG=Math.round(gSum/4), bgB=Math.round(bSum/4);
 
-      // If corners are gray (not white), it's a white garment on gray bg
-      const isGrayBg = cornerR < 240 && Math.abs(cornerR-cornerG)<15 && Math.abs(cornerG-cornerB)<15;
-
-      // Set threshold based on background type
-      // For gray backgrounds: flood pixels similar to corner color
-      // For white backgrounds: only flood very light pixels (conservative to preserve white fabric)
-      const threshold = isGrayBg ? 30 : 20; // tolerance around detected background color
+      // Is background gray (generated for white garment) or white/near-white?
+      const isGray = bgR < 235 && Math.abs(bgR-bgG)<20 && Math.abs(bgG-bgB)<20;
+      const tol = isGray ? 35 : 15; // wider tolerance for gray bg, narrow for white bg
 
       const visited=new Uint8Array(W*H);
-      const isBg=(i)=>{
-        return Math.abs(d[i]-cornerR) < threshold &&
-               Math.abs(d[i+1]-cornerG) < threshold &&
-               Math.abs(d[i+2]-cornerB) < threshold;
-      };
+      const isBg=(i)=>Math.abs(d[i]-bgR)<tol && Math.abs(d[i+1]-bgG)<tol && Math.abs(d[i+2]-bgB)<tol;
 
+      // Seed flood-fill from image content corners + canvas edges
+      const seeds=[[0,0],[W-1,0],[0,H-1],[W-1,H-1],
+                   [sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
       const queue=[];
-      // Only flood from 4 true corners — safer than 8 points
-      [[0,0],[W-1,0],[0,H-1],[W-1,H-1]].forEach(([x,y])=>{
+      seeds.forEach(([x,y])=>{
         const p=y*W+x;
         if(!visited[p]&&isBg(p*4)){visited[p]=1;queue.push(p);}
       });
@@ -423,7 +421,11 @@ function buildPrompt(product, pose, feedback="") {
     ? `BACKGROUND: Use a LIGHT NEUTRAL GRAY background (#CCCCCC / RGB 204,204,204) — NOT white. This is essential so the white garment is clearly differentiated from the background. The background will be replaced with pure white in post-production. Studio lighting: soft even light, no harsh shadows. Show full fabric texture, mesh pattern, and all design details clearly — do not overexpose. The garment must be sharp and detailed with visible texture.`
     : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
 
-  const logoInstructions = `LOGO RULE: The reference product photo shows a specific logo. You MUST copy that EXACT logo from the reference photo onto the generated garment — same shape, same size (small, approximately 1 inch), same position. Do NOT invent, redesign, or replace the logo with anything else. If a separate logo image is provided, use that logo instead.`;
+  // Logo only goes on front-facing views, not back views
+  const isBackView = pose.id === "back_view" || pose.id === "back_hips" || pose.id === "back_right" || pose.id === "back_left" || pose.id === "flat_back";
+  const logoInstructions = isBackView
+    ? `LOGO RULE: This is a BACK VIEW. Do NOT place any logo on the back unless the design notes explicitly say the back has a logo. The back of this garment is clean/plain.`
+    : `LOGO RULE: The reference product photo shows a specific logo on the FRONT. Copy that EXACT logo — same shape, same size (small, approximately 1 inch), centered on chest. Do NOT invent or redesign the logo. If a separate logo image is provided, use that exact logo.`;
 
   const designBlock = designNotes
     ? `MANDATORY DESIGN DETAILS — every point below is required in the output:
@@ -471,11 +473,12 @@ export default function App() {
     try{return localStorage.getItem("imageStudio_apiKey")||"";}catch{return"";}
   });
   const [generating,setGenerating] = useState(false);
-  const [enhancing,setEnhancing] = useState({}); // {slotIndex: true/false}
-  const [mode,setMode] = useState("generate"); // "generate" | "enhance"
+  const [enhancing,setEnhancing] = useState({});
+  const [mode,setMode] = useState("generate");
   const [enhancingAll,setEnhancingAll] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
+  const [slotFeedback,setSlotFeedback] = useState({index:-1,text:""});
   const [modelPreview,setModelPreview] = useState(null);
   const [modelPreviewLoading,setModelPreviewLoading] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
@@ -800,17 +803,22 @@ export default function App() {
 
   async function regenSlot(i){
     if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
+    setSlotFeedback({index:i,text:""});
+  }
+
+  async function doRegenSlot(i, feedback=""){
     upd(i,{status:"generating",error:null});
     const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
     const {base64,mime}=getRefData();
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
-      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime,logoB64,logoMime);
+      const res=await generateImage(buildPrompt(product,pose,feedback),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime);
       upd(i,{status:"done",result:processed});
       trackImageGenerated();
       await saveToGallery(processed,i,pose);
     }catch(e){upd(i,{status:"error",error:e.message});}
+    setSlotFeedback({index:-1,text:""});
   }
 
   function downloadAll(){
@@ -1231,6 +1239,35 @@ export default function App() {
                 );
               })}
             </div>
+
+            {/* Per-slot feedback panel */}
+            {slotFeedback.index>=0&&slots[slotFeedback.index]&&(
+              <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:10,padding:14,marginTop:4}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.purple}}>
+                    ↻ Redo Slot #{slotFeedback.index+1} — {ALL_POSES.find(p=>p.id===slots[slotFeedback.index].poseId)?.name}
+                  </div>
+                  <button onClick={()=>setSlotFeedback({index:-1,text:""})} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button>
+                </div>
+                <textarea
+                  value={slotFeedback.text}
+                  onChange={e=>setSlotFeedback(p=>({...p,text:e.target.value}))}
+                  placeholder="Describe changes e.g. 'make model taller', 'show logo more clearly', 'wider shoulders', 'different pose'... or leave blank to just regenerate"
+                  rows={2}
+                  style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.5,boxSizing:"border-box",marginBottom:10}}
+                />
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>doRegenSlot(slotFeedback.index,"")}
+                    style={{...btn(C.border,true),flex:1,fontSize:12,color:C.muted}}>
+                    ↻ Regenerate (no changes)
+                  </button>
+                  <button onClick={()=>doRegenSlot(slotFeedback.index,slotFeedback.text)}
+                    style={{...btn(C.purple),flex:2,fontSize:12,fontWeight:700}}>
+                    ✓ {slotFeedback.text.trim()?"Apply Changes & Regenerate":"Regenerate"}
+                  </button>
+                </div>
+              </div>
+            )}
           )}
         </div>
       </div>
