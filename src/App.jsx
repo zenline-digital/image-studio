@@ -370,7 +370,7 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
       const bgR=Math.round(rSum/4), bgG=Math.round(gSum/4), bgB=Math.round(bSum/4);
 
       const isGray = bgR < 235 && Math.abs(bgR-bgG)<20 && Math.abs(bgG-bgB)<20;
-      const tol = isGray ? 35 : 15;
+      const tol = isGray ? 18 : 12; // tight tolerance — prevent leaking into skin
 
       const visited=new Uint8Array(W*H);
       const isBg=(i)=>Math.abs(d[i]-bgR)<tol && Math.abs(d[i+1]-bgG)<tol && Math.abs(d[i+2]-bgB)<tol;
@@ -394,23 +394,21 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
         }
       }
 
-      // White garment post-processing: remove gray lighting shadows from fabric
+      // White garment: brighten ONLY truly neutral gray pixels (not skin)
+      // Skin tones always have R > B by at least 40. Pure neutral gray has R ≈ G ≈ B.
       if(isWhiteProduct){
         for(let i=0;i<d.length;i+=4){
           const r=d[i],g=d[i+1],b=d[i+2];
           const avg=(r+g+b)/3;
-          // Target: neutral gray pixels (fabric shadows) but NOT:
-          // - Pure white (already fine)
-          // - Dark pixels (logo, hair, clothing)
-          // - Warm skin tones (r significantly higher than b)
-          const isNeutralGray = Math.abs(r-g)<28 && Math.abs(g-b)<28 && (r-b)<38;
-          const isFabricShadow = avg>95 && avg<250;
-          if(isNeutralGray && isFabricShadow){
-            // Graduated aggressive boost — darker shadows get pushed harder
-            const boost=Math.round((255-avg)*0.85);
-            d[i]=Math.min(252,r+boost);
-            d[i+1]=Math.min(252,g+boost);
-            d[i+2]=Math.min(252,b+boost);
+          // VERY strict neutral check — excludes ALL skin tones
+          const isStrictNeutral = Math.abs(r-g)<15 && Math.abs(g-b)<15 && Math.abs(r-b)<15;
+          // Only medium brightness (actual fabric shadow, not dark details or pure white)
+          const isShadow = avg > 130 && avg < 242;
+          if(isStrictNeutral && isShadow){
+            const boost = Math.round((255-avg)*0.75);
+            d[i]=Math.min(250,r+boost);
+            d[i+1]=Math.min(250,g+boost);
+            d[i+2]=Math.min(250,b+boost);
           }
         }
       }
@@ -436,7 +434,7 @@ function buildPrompt(product, pose, feedback="") {
   const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
 
   const quality = isWhiteGarment
-    ? `BACKGROUND: Light neutral gray (#BBBBBB) to differentiate from white garment.
+    ? `BACKGROUND: Very light gray (#DDDDDD) to differentiate from white garment.
 CRITICAL LIGHTING FOR WHITE GARMENT: Use pure flat front-facing diffused lighting — like a large lightbox or ring flash directly in front. The white fabric must appear UNIFORMLY BRIGHT WHITE with ZERO gray patches, ZERO shadow areas, ZERO lighting gradients anywhere on the garment. No side lighting, no Rembrandt lighting, no dramatic shadows. Think: product flat lay lighting applied to model shot. The garment should look like it is self-luminous — no shadows of any kind on the white fabric surface.`
     : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
 
