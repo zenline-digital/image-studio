@@ -394,17 +394,23 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
         }
       }
 
-      // White garment post-processing: brighten gray fabric shadows
+      // White garment post-processing: remove gray lighting shadows from fabric
       if(isWhiteProduct){
         for(let i=0;i<d.length;i+=4){
           const r=d[i],g=d[i+1],b=d[i+2];
           const avg=(r+g+b)/3;
-          // Only affect near-white gray (not pure white, not dark logo/text pixels)
-          if(avg>160 && avg<245 && Math.abs(r-g)<30 && Math.abs(g-b)<30){
-            const boost=Math.round((255-avg)*0.65);
-            d[i]=Math.min(255,r+boost);
-            d[i+1]=Math.min(255,g+boost);
-            d[i+2]=Math.min(255,b+boost);
+          // Target: neutral gray pixels (fabric shadows) but NOT:
+          // - Pure white (already fine)
+          // - Dark pixels (logo, hair, clothing)
+          // - Warm skin tones (r significantly higher than b)
+          const isNeutralGray = Math.abs(r-g)<28 && Math.abs(g-b)<28 && (r-b)<38;
+          const isFabricShadow = avg>95 && avg<250;
+          if(isNeutralGray && isFabricShadow){
+            // Graduated aggressive boost — darker shadows get pushed harder
+            const boost=Math.round((255-avg)*0.85);
+            d[i]=Math.min(252,r+boost);
+            d[i+1]=Math.min(252,g+boost);
+            d[i+2]=Math.min(252,b+boost);
           }
         }
       }
@@ -430,8 +436,8 @@ function buildPrompt(product, pose, feedback="") {
   const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
 
   const quality = isWhiteGarment
-    ? `BACKGROUND: Use a LIGHT NEUTRAL GRAY background (#BBBBBB) so the white garment is clearly separate from background.
-LIGHTING FOR WHITE GARMENT: Use a large front-facing softbox or ring light setup that produces FLAT, EVEN, SHADOW-FREE illumination across the entire white garment. NO directional shadows, NO gray blotches, NO lighting gradients on the fabric surface. The white fabric must appear uniformly bright white across all areas — no patches of gray or shadow. The texture and mesh pattern should be visible only through subtle tone-on-tone detail, not through gray shadows. Think: clean catalogue photography lighting, not fashion editorial.`
+    ? `BACKGROUND: Light neutral gray (#BBBBBB) to differentiate from white garment.
+CRITICAL LIGHTING FOR WHITE GARMENT: Use pure flat front-facing diffused lighting — like a large lightbox or ring flash directly in front. The white fabric must appear UNIFORMLY BRIGHT WHITE with ZERO gray patches, ZERO shadow areas, ZERO lighting gradients anywhere on the garment. No side lighting, no Rembrandt lighting, no dramatic shadows. Think: product flat lay lighting applied to model shot. The garment should look like it is self-luminous — no shadows of any kind on the white fabric surface.`
     : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
 
   // Logo only goes on front-facing views, not back views
