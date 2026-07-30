@@ -1239,35 +1239,34 @@ export default function App() {
                 );
               })}
             </div>
+          )}
 
-            {/* Per-slot feedback panel */}
-            {slotFeedback.index>=0&&slots[slotFeedback.index]&&(
-              <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:10,padding:14,marginTop:4}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <div style={{fontSize:13,fontWeight:600,color:C.purple}}>
-                    ↻ Redo Slot #{slotFeedback.index+1} — {ALL_POSES.find(p=>p.id===slots[slotFeedback.index].poseId)?.name}
-                  </div>
-                  <button onClick={()=>setSlotFeedback({index:-1,text:""})} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button>
+          {/* Per-slot feedback panel — outside grid conditional */}
+          {slotFeedback.index>=0&&slots[slotFeedback.index]&&(
+            <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:10,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.purple}}>
+                  ↻ Redo Slot #{slotFeedback.index+1} — {ALL_POSES.find(p=>p.id===slots[slotFeedback.index].poseId)?.name}
                 </div>
-                <textarea
-                  value={slotFeedback.text}
-                  onChange={e=>setSlotFeedback(p=>({...p,text:e.target.value}))}
-                  placeholder="Describe changes e.g. 'make model taller', 'show logo more clearly', 'wider shoulders', 'different pose'... or leave blank to just regenerate"
-                  rows={2}
-                  style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.5,boxSizing:"border-box",marginBottom:10}}
-                />
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>doRegenSlot(slotFeedback.index,"")}
-                    style={{...btn(C.border,true),flex:1,fontSize:12,color:C.muted}}>
-                    ↻ Regenerate (no changes)
-                  </button>
-                  <button onClick={()=>doRegenSlot(slotFeedback.index,slotFeedback.text)}
-                    style={{...btn(C.purple),flex:2,fontSize:12,fontWeight:700}}>
-                    ✓ {slotFeedback.text.trim()?"Apply Changes & Regenerate":"Regenerate"}
-                  </button>
-                </div>
+                <button onClick={()=>setSlotFeedback({index:-1,text:""})} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button>
               </div>
-            )}
+              <textarea
+                value={slotFeedback.text}
+                onChange={e=>setSlotFeedback(p=>({...p,text:e.target.value}))}
+                placeholder="Describe changes e.g. 'make model taller', 'show logo more clearly', 'wider shoulders'... or leave blank to just regenerate"
+                rows={2}
+                style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.5,boxSizing:"border-box",marginBottom:10}}
+              />
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>doRegenSlot(slotFeedback.index,"")} style={{...btn(C.border,true),flex:1,fontSize:12,color:C.muted}}>
+                  ↻ Regenerate (no changes)
+                </button>
+                <button onClick={()=>doRegenSlot(slotFeedback.index,slotFeedback.text)} style={{...btn(C.purple),flex:2,fontSize:12,fontWeight:700}}>
+                  ✓ {slotFeedback.text.trim()?"Apply Changes & Regenerate":"Regenerate"}
+                </button>
+              </div>
+            </div>
+          )}
           )}
         </div>
       </div>
