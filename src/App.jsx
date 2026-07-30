@@ -370,7 +370,8 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
       const bgR=Math.round(rSum/4), bgG=Math.round(gSum/4), bgB=Math.round(bSum/4);
 
       const isGray = bgR < 235 && Math.abs(bgR-bgG)<20 && Math.abs(bgG-bgB)<20;
-      const tol = isGray ? 18 : 12; // tight tolerance — prevent leaking into skin
+      const isBlue = bgB > bgR+20 && bgB > 150; // blue background for white garments
+      const tol = (isGray||isBlue) ? 22 : 12;
 
       const visited=new Uint8Array(W*H);
       const isBg=(i)=>Math.abs(d[i]-bgR)<tol && Math.abs(d[i+1]-bgG)<tol && Math.abs(d[i+2]-bgB)<tol;
@@ -394,21 +395,23 @@ async function processImage(base64Data, mime, isWhiteProduct=false) {
         }
       }
 
-      // White garment: brighten ONLY truly neutral gray pixels (not skin)
-      // Skin tones always have R > B by at least 40. Pure neutral gray has R ≈ G ≈ B.
+      // White garment: aggressively whiten neutral gray areas (fabric shadows + camo texture)
       if(isWhiteProduct){
         for(let i=0;i<d.length;i+=4){
           const r=d[i],g=d[i+1],b=d[i+2];
           const avg=(r+g+b)/3;
-          // VERY strict neutral check — excludes ALL skin tones
-          const isStrictNeutral = Math.abs(r-g)<15 && Math.abs(g-b)<15 && Math.abs(r-b)<15;
-          // Only medium brightness (actual fabric shadow, not dark details or pure white)
-          const isShadow = avg > 130 && avg < 242;
-          if(isStrictNeutral && isShadow){
-            const boost = Math.round((255-avg)*0.75);
-            d[i]=Math.min(250,r+boost);
-            d[i+1]=Math.min(250,g+boost);
-            d[i+2]=Math.min(250,b+boost);
+          // Exclude skin: skin always has R noticeably higher than B (warm tone)
+          // Exclude dark details: logo, hair, dark clothing (avg < 80)
+          // Exclude pure white (already white, avg > 245)
+          const isSkin = (r-b) > 45 && r > 140; // warm tone = skin
+          const isDark = avg < 80;
+          const isPureWhite = avg > 245;
+          if(!isSkin && !isDark && !isPureWhite){
+            // Push ALL remaining gray/off-white toward white
+            const boost = Math.round((255-avg)*0.88);
+            d[i]=Math.min(253,r+boost);
+            d[i+1]=Math.min(253,g+boost);
+            d[i+2]=Math.min(253,b+boost);
           }
         }
       }
@@ -461,7 +464,7 @@ Background: PURE WHITE #FFFFFF. No shadows. High resolution, marketplace quality
   // No reference — text-only generation
   const isWhite = color.toLowerCase().includes("white")||color.toLowerCase().includes("cream")||color.toLowerCase().includes("ivory");
   const bgInstr = isWhite
-    ? "Background: light gray #DDDDDD (will be replaced with white in post-processing). Flat even lighting, no shadows on white fabric."
+    ? "Background: soft light blue #B0C8FF. Flat even lighting."
     : "Background: PURE WHITE #FFFFFF. Even studio lighting.";
 
   return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc}${designNotes?`\nProduct design: ${designNotes}.`:""}\n${bgInstr}\nFull body visible. Neutral confident expression. High resolution marketplace quality. 3:4 portrait.${changes}`;
