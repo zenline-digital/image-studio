@@ -252,8 +252,67 @@ async function toThumbnail(fullImageDataUrl) {
   });
 }
 
-  // Use ZenLine Digital's Claude proxy — already working, no extra setup needed
-async function analyzeProductPhoto(base64Image, mime) {
+// ─── Image Enhancement ────────────────────────────────────────────────────────
+async function enhanceImage(imageDataUrl, scale=1.5) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = Math.round(img.width * scale);
+      const H = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+
+      // White base
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, W, H);
+
+      // High quality upscale pass 1
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, W, H);
+
+      // Sharpening via pixel convolution
+      const imageData = ctx.getImageData(0, 0, W, H);
+      const d = imageData.data;
+      const out = new Uint8ClampedArray(d.length);
+      const kernel = [0,-1,0,-1,5,-1,0,-1,0]; // sharpen kernel
+
+      for(let y = 1; y < H-1; y++){
+        for(let x = 1; x < W-1; x++){
+          for(let c = 0; c < 3; c++){
+            let s = 0;
+            for(let ky = -1; ky <= 1; ky++){
+              for(let kx = -1; kx <= 1; kx++){
+                s += d[((y+ky)*W+(x+kx))*4+c] * kernel[(ky+1)*3+(kx+1)];
+              }
+            }
+            out[(y*W+x)*4+c] = Math.max(0, Math.min(255, s));
+          }
+          out[(y*W+x)*4+3] = 255;
+        }
+      }
+      // Copy edges unchanged
+      for(let x = 0; x < W; x++){
+        for(let c = 0; c < 4; c++){
+          out[x*4+c] = d[x*4+c];
+          out[((H-1)*W+x)*4+c] = d[((H-1)*W+x)*4+c];
+        }
+      }
+      for(let y = 0; y < H; y++){
+        for(let c = 0; c < 4; c++){
+          out[(y*W)*4+c] = d[(y*W)*4+c];
+          out[(y*W+W-1)*4+c] = d[(y*W+W-1)*4+c];
+        }
+      }
+
+      ctx.putImageData(new ImageData(out, W, H), 0, 0);
+      resolve(canvas.toDataURL("image/jpeg", 1.0)); // max JPEG quality
+    };
+    img.onerror = reject;
+    img.src = imageDataUrl;
+  });
+}
   const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -389,6 +448,9 @@ export default function App() {
     try{return localStorage.getItem("imageStudio_apiKey")||"";}catch{return"";}
   });
   const [generating,setGenerating] = useState(false);
+  const [enhancing,setEnhancing] = useState({}); // {slotIndex: true/false}
+  const [mode,setMode] = useState("generate"); // "generate" | "enhance"
+  const [enhancingAll,setEnhancingAll] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
   const [modelPreview,setModelPreview] = useState(null);
@@ -472,7 +534,62 @@ export default function App() {
 
   function upd(i,patch){setSlots(p=>p.map((s,idx)=>idx===i?{...s,...patch}:s));}
 
-  function resetSample(){setSampleDone(false);setSampleFeedback("");}
+  async function enhanceReference(){
+    // Process uploaded reference photos — clean background, sharpen, upscale
+    // No AI generation needed — uses the actual product photos
+    const refPhotos = [refs.front, refs.back, refs.side].filter(Boolean);
+    if(refPhotos.length === 0){
+      alert("Upload at least one reference photo (Front, Back or Side) first");
+      return;
+    }
+    setEnhancingAll(true);
+
+    // Map reference photos to slots
+    const slotMappings = [
+      {slotIdx:0, photo:refs.front||refs.back},     // Hero Front
+      {slotIdx:1, photo:refs.back||refs.front},     // Back View
+      {slotIdx:2, photo:refs.front||refs.back},     // ¾ Front Left
+      {slotIdx:3, photo:refs.front||refs.back},     // Upper Body
+      {slotIdx:4, photo:refs.front||refs.back},     // Flat Lay
+      {slotIdx:5, photo:refs.side||refs.front||refs.back}, // Running
+      {slotIdx:6, photo:refs.front||refs.back},     // Hands on Hips
+      {slotIdx:7, photo:refs.front||refs.back},     // Fabric Macro
+    ].filter(m => m.photo);
+
+    for(const {slotIdx, photo} of slotMappings){
+      upd(slotIdx, {status:"generating", result:null, error:null});
+      try{
+        // Convert dataUrl to base64
+        const base64 = photo.split(",")[1];
+        const mime = photo.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+        // Process: white background + sharpen + upscale to 1948×2656
+        const processed = await processImage(base64, mime);
+        // Apply additional sharpening pass
+        const enhanced = await enhanceImage(processed, 1.0); // same size, just sharpen + max quality
+        upd(slotIdx, {status:"done", result:enhanced});
+        trackImageGenerated();
+        const pose = ALL_POSES.find(p=>p.id===slots[slotIdx].poseId)||ALL_POSES[0];
+        await saveToGallery(enhanced, slotIdx, pose);
+      }catch(e){
+        upd(slotIdx, {status:"error", error:e.message});
+      }
+    }
+    setEnhancingAll(false);
+  }
+
+  async function handleEnhance(i, scale=1.5){
+    const slot = slots[i];
+    if(!slot.result) return;
+    setEnhancing(p => ({...p, [i]: true}));
+    try{
+      const enhanced = await enhanceImage(slot.result, scale);
+      upd(i, {result: enhanced});
+      // Save enhanced to gallery
+      const pose = ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
+      await saveToGallery(enhanced, i, pose);
+    }catch(e){ alert("Enhancement failed: "+e.message); }
+    setEnhancing(p => ({...p, [i]: false}));
+  }
 
   function randomizeVaried(){
     const pool=ALL_POSES.filter(p=>!["Standard","Flat Lay","Detail","Back Views"].includes(p.category));
@@ -917,59 +1034,98 @@ export default function App() {
 
           {/* Generate section */}
           <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
+
+            {/* Mode selector */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+              <div onClick={()=>setMode("generate")} style={{padding:"12px 14px",borderRadius:9,border:`2px solid ${mode==="generate"?C.purple:C.border}`,background:mode==="generate"?`${C.purple}15`:C.surf,cursor:"pointer",transition:"all 0.2s"}}>
+                <div style={{fontSize:16,marginBottom:4}}>🤖</div>
+                <div style={{fontSize:13,fontWeight:700,color:mode==="generate"?C.purple:C.text,marginBottom:3}}>Generate New</div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>AI creates a new image with a new model wearing your product</div>
+              </div>
+              <div onClick={()=>setMode("enhance")} style={{padding:"12px 14px",borderRadius:9,border:`2px solid ${mode==="enhance"?C.teal:C.border}`,background:mode==="enhance"?`${C.teal}15`:C.surf,cursor:"pointer",transition:"all 0.2s"}}>
+                <div style={{fontSize:16,marginBottom:4}}>✨</div>
+                <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text,marginBottom:3}}>Enhance Reference</div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>Takes your uploaded photos — pure white background, sharper, larger. Same product, same model.</div>
+              </div>
+            </div>
+
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div>
-                <div style={{fontWeight:600,marginBottom:2}}>Generate 8 images</div>
-                <div style={{fontSize:11,color:C.muted}}>{apiKey.length>20?"1 key configured · Gemini Flash Image":"Add API key to enable generation"}</div>
+              <div style={{fontSize:11,color:C.muted}}>
+                {mode==="generate"
+                  ? apiKey.length>20?"1 key configured · Imagen 3 active":"Add API key to enable generation"
+                  : "No API key needed · processes your reference photos"}
               </div>
               {doneCount>0&&<button onClick={downloadAll} style={btn(C.teal)}>⬇ ZIP ({doneCount})</button>}
             </div>
 
-            {/* Step 1 — Sample */}
-            {!sampleDone&&!slots[0].result&&(
-              <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateSample}
-                style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
-                {generating?"■ Stop":"⚡ Generate Sample (1 of 8) →"}
-              </button>
-            )}
-
-            {/* Sample done — feedback + approve */}
-            {(sampleDone||slots[0].result)&&!generating&&(
-              <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:8,padding:12,marginBottom:10}}>
-                <div style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:8}}>✓ Sample ready — review slot #1 (Hero Front)</div>
-                <textarea value={sampleFeedback} onChange={e=>setSampleFeedback(e.target.value)}
-                  placeholder="Optional: describe changes e.g. 'make model taller, darker background, show logo more prominently'"
-                  style={{...{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:11,fontFamily:"inherit",boxSizing:"border-box"},resize:"vertical",lineHeight:1.5,minHeight:50}}
-                  rows={2} />
-                <div style={{display:"flex",gap:8,marginTop:8}}>
-                  {sampleFeedback.trim()&&(
-                    <button onClick={regenSampleWithFeedback} style={{...btn(C.amber),flex:1,fontSize:12}}>
-                      ↺ Redo with Changes
-                    </button>
-                  )}
-                  <button onClick={generateAll} style={{...btn(C.teal),flex:2,fontSize:12,fontWeight:700}}>
-                    ✓ Looks Good — Generate All 8
-                  </button>
+            {/* ENHANCE MODE */}
+            {mode==="enhance"&&(
+              <div>
+                {(!refs.front&&!refs.back&&!refs.side) ? (
+                  <div style={{padding:"14px",background:`${C.amber}10`,border:`1px solid ${C.amber}30`,borderRadius:8,fontSize:12,color:C.amber,marginBottom:10}}>
+                    ⚠ Upload at least one reference photo first (Front, Back or Side)
+                  </div>
+                ):(
+                  <div style={{padding:"12px",background:`${C.teal}10`,border:`1px solid ${C.teal}30`,borderRadius:8,fontSize:12,color:C.teal,marginBottom:10}}>
+                    ✓ {[refs.front&&"Front",refs.back&&"Back",refs.side&&"Side"].filter(Boolean).join(", ")} photo{[refs.front,refs.back,refs.side].filter(Boolean).length>1?"s":""} ready to enhance
+                  </div>
+                )}
+                <button onClick={enhancingAll?()=>{}:enhanceReference} disabled={enhancingAll||(!refs.front&&!refs.back&&!refs.side)}
+                  style={{...btn(enhancingAll?C.border:C.teal),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
+                  {enhancingAll?`⏳ Enhancing... ${doneCount}/8`:"✨ Enhance Reference Photos"}
+                </button>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+                  What this does: removes background → replaces with pure white → sharpens fabric details → upscales to 1948×2656px → exports at maximum quality. No new model generated.
                 </div>
               </div>
             )}
 
-            {/* Generating remaining */}
-            {generating&&sampleDone&&(
-              <button onClick={()=>{stopRef.current=true;setGenerating(false);}} style={{...btn(C.danger),width:"100%",fontSize:12,marginBottom:8}}>
-                ■ Stop Generation
-              </button>
+            {/* GENERATE MODE */}
+            {mode==="generate"&&(
+              <div>
+                {/* Step 1 — Sample */}
+                {!sampleDone&&!slots[0].result&&(
+                  <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateSample}
+                    style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
+                    {generating?"■ Stop":"⚡ Generate Sample (1 of 8) →"}
+                  </button>
+                )}
+
+                {/* Sample done — feedback + approve */}
+                {(sampleDone||slots[0].result)&&!generating&&(
+                  <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:8,padding:12,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:8}}>✓ Sample ready — review slot #1 (Hero Front)</div>
+                    <textarea value={sampleFeedback} onChange={e=>setSampleFeedback(e.target.value)}
+                      placeholder="Optional: describe changes e.g. 'make model taller, darker background, show logo more prominently'"
+                      style={{...{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:11,fontFamily:"inherit",boxSizing:"border-box"},resize:"vertical",lineHeight:1.5,minHeight:50}}
+                      rows={2} />
+                    <div style={{display:"flex",gap:8,marginTop:8}}>
+                      {sampleFeedback.trim()&&(
+                        <button onClick={regenSampleWithFeedback} style={{...btn(C.amber),flex:1,fontSize:12}}>↺ Redo with Changes</button>
+                      )}
+                      <button onClick={generateAll} style={{...btn(C.teal),flex:2,fontSize:12,fontWeight:700}}>✓ Looks Good — Generate All 8</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Generating remaining */}
+                {generating&&sampleDone&&(
+                  <button onClick={()=>{stopRef.current=true;setGenerating(false);}} style={{...btn(C.danger),width:"100%",fontSize:12,marginBottom:8}}>
+                    ■ Stop Generation
+                  </button>
+                )}
+              </div>
             )}
 
-            {/* Progress bar */}
+            {/* Progress bar — both modes */}
             {slots.some(s=>s.status!=="idle")&&(
-              <div>
+              <div style={{marginTop:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{fontSize:11,color:C.muted}}>Progress</span>
                   <span style={{fontSize:11}}>{doneCount}/8 done</span>
                 </div>
                 <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:6}}>
-                  <div style={{height:"100%",width:`${progress}%`,background:C.purple,borderRadius:3,transition:"width 0.4s"}} />
+                  <div style={{height:"100%",width:`${progress}%`,background:mode==="enhance"?C.teal:C.purple,borderRadius:3,transition:"width 0.4s"}} />
                 </div>
                 <div style={{display:"flex",gap:3}}>
                   {slots.map((s,i)=>(
@@ -992,11 +1148,21 @@ export default function App() {
                       {slot.status==="done"&&slot.result?(
                         <div style={{position:"relative",width:"100%",height:"100%"}}>
                           <img src={slot.result} alt={pose.name} style={{width:"100%",height:"100%",objectFit:"cover"}} />
-                          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",opacity:0,display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"opacity 0.2s"}}
-                            onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
-                            <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"5px 10px",fontSize:11}}>↻ Redo</button>
-                            <button onClick={()=>{const a=document.createElement("a");a.href=slot.result;a.download=`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`;a.click();}} style={{...btn(C.teal),padding:"5px 10px",fontSize:11}}>⬇</button>
-                          </div>
+                          {enhancing[i]&&(
+                            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}>
+                              <div style={{fontSize:20,animation:"spin 1s linear infinite"}}>✨</div>
+                              <div style={{fontSize:11,color:"#fff"}}>Enhancing...</div>
+                            </div>
+                          )}
+                          {!enhancing[i]&&(
+                            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",opacity:0,display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"opacity 0.2s",flexWrap:"wrap",padding:8}}
+                              onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
+                              <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"5px 8px",fontSize:10}}>↻ Redo</button>
+                              <button onClick={()=>handleEnhance(i,1.5)} style={{...btn("#f59e0b"),padding:"5px 8px",fontSize:10}}>✨ 1.5×</button>
+                              <button onClick={()=>handleEnhance(i,2)} style={{...btn("#a855f7"),padding:"5px 8px",fontSize:10}}>✨ 2×</button>
+                              <button onClick={()=>{const a=document.createElement("a");a.href=slot.result;a.download=`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`;a.click();}} style={{...btn(C.teal),padding:"5px 8px",fontSize:10}}>⬇</button>
+                            </div>
+                          )}
                         </div>
                       ):slot.status==="generating"?(
                         <div style={{textAlign:"center",color:C.amber}}>
