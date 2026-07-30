@@ -493,7 +493,7 @@ export default function App() {
   });
   const [generating,setGenerating] = useState(false);
   const [enhancing,setEnhancing] = useState({});
-  const [mode,setMode] = useState("generate");
+  const [mode,setMode] = useState("enhance");
   const [enhancingAll,setEnhancingAll] = useState(false);
   const [sampleDone,setSampleDone] = useState(false);
   const [sampleFeedback,setSampleFeedback] = useState("");
@@ -652,17 +652,31 @@ export default function App() {
     setProduct(p=>({...p,lockedModel:m}));
     setModelPreview(null);
 
-    // Generate a quick preview portrait of this model
     if(apiKey && apiKey.length > 20){
       setModelPreviewLoading(true);
       try{
-        const previewPrompt = `Professional studio portrait of a ${m}. Plain white background. Neutral expression, looking at camera. Upper body only, cropped at waist. High quality, realistic photography. Suitable for activewear brand usage.`;
-        const res = await generateImage(previewPrompt, apiKey);
-        // Create small thumbnail from the result
-        const thumb = await toThumbnail(`data:${res.mime};base64,${res.data}`);
-        setModelPreview(thumb);
-      }catch(e){ console.log("Model preview failed:", e.message); }
+        // Use Gemini Flash for portrait — faster and cheaper than Imagen 3
+        const previewPrompt = `Portrait photo of a ${m}. Clean white background. Looking directly at camera, neutral confident expression. Upper body shot cropped at chest. Professional studio photography. High quality, sharp, realistic.`;
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({contents:[{parts:[{text:previewPrompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
+        });
+        const d = await r.json();
+        if(d.error) throw new Error(d.error.message);
+        const parts = d.candidates?.[0]?.content?.parts||[];
+        for(const part of parts){
+          if(part.inlineData?.data){
+            const thumb = await toThumbnail(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`);
+            setModelPreview(thumb);
+            break;
+          }
+        }
+      }catch(e){
+        notify("Model preview failed: "+e.message, "err");
+      }
       setModelPreviewLoading(false);
+    } else {
+      notify("Add your Gemini API key in settings to see model previews","warn");
     }
   }
 
@@ -1065,7 +1079,7 @@ export default function App() {
                 <div style={{width:36,height:36,borderRadius:8,background:mode==="generate"?C.purple:`${C.purple}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>🤖</div>
                 <div>
                   <div style={{fontSize:13,fontWeight:700,color:mode==="generate"?C.purple:C.text}}>Generate New</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>AI creates with a new model</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>AI creates a new image — approximates product</div>
                 </div>
                 {mode==="generate"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.purple}}/>}
               </div>
@@ -1078,8 +1092,8 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:36,height:36,borderRadius:8,background:mode==="enhance"?C.teal:`${C.teal}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>✨</div>
                 <div>
-                  <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text}}>Enhance Reference</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Clean up your product photos</div>
+                  <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text}}>Enhance Reference ⭐</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Your exact product photo — white background, sharpened, upscaled</div>
                 </div>
                 {mode==="enhance"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.teal}}/>}
               </div>
