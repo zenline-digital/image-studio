@@ -213,6 +213,27 @@ async function resizeSquare(dataURL, size=280) {
 
 async function resizeForGallery(dataURL) { return canvasResize(dataURL,600,800,0.78); }
 
+// Canvas upscale — multiplies pixel dimensions (1.5x or 2x) with high-quality smoothing
+async function upscaleImage(dataURL, factor) {
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas");
+      c.width=Math.round(img.width*factor);
+      c.height=Math.round(img.height*factor);
+      const ctx=c.getContext("2d");
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality="high";
+      ctx.fillStyle="#FFFFFF";
+      ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL("image/jpeg",0.96));
+    };
+    img.onerror=()=>resolve(dataURL);
+    img.src=dataURL;
+  });
+}
+
 // ═══════════════════════════════════════════════════
 //  PROMPT BUILDERS
 // ═══════════════════════════════════════════════════
@@ -523,6 +544,7 @@ export default function App() {
 
   // ── 8 Slots ───────────────────────────────────
   const [slots, setSlots] = useState(()=>DEFAULT_POSES.map((pose,i)=>({idx:i,pose,image:null,status:"idle",error:null})));
+  const [slotComments, setSlotComments] = useState(()=>Array(8).fill(""));
   const [activePoseSlot, setActivePoseSlot] = useState(null);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const stopRef = useRef(false);
@@ -631,7 +653,12 @@ export default function App() {
       if(refImages.back) {parts.push({inlineData:{mimeType:refImages.back.mime, data:refImages.back.data}});parts.push({text:"[REFERENCE IMAGE 2 — BACK VIEW]"});}
       if(refImages.side) {parts.push({inlineData:{mimeType:refImages.side.mime, data:refImages.side.data}});parts.push({text:"[REFERENCE IMAGE 3 — SIDE VIEW]"});}
       if(refImages.detail){parts.push({inlineData:{mimeType:refImages.detail.mime,data:refImages.detail.data}});parts.push({text:"[REFERENCE IMAGE 4 — DETAIL]"});}
-      parts.push({text:buildSlotPrompt(selectedModel,garmentType,pose,refImages)});
+      const comment = slotComments[idx]?.trim();
+      const basePrompt = buildSlotPrompt(selectedModel,garmentType,pose,refImages);
+      const fullPrompt = comment
+        ? basePrompt + `\n\nSPECIFIC CHANGE REQUESTED FOR THIS REGENERATION:\n"${comment}"\nApply this specific instruction while keeping everything else identical.`
+        : basePrompt;
+      parts.push({text:fullPrompt});
       const img=await callGemini(geminiKey,parts,0.2);
       const raw=`data:${img.mimeType};base64,${img.data}`;
       const processed=await canvasResize(raw,outSize.w,outSize.h,0.95);
@@ -641,6 +668,36 @@ export default function App() {
       saveImageToGallery(processed,{modelName:selectedModel.name,modelTag:selectedModel.tag,garmentType,poseName:pose.name,gender});
     } catch(e) {
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"error",error:e.message}:s));
+    }
+  };
+
+  // ── Upscale download ─────────────────────────────
+  const downloadUpscaled = async (slot, factor) => {
+    if (!slot.image) return;
+    const upscaled = await upscaleImage(slot.image, factor);
+    const a=document.createElement("a");
+    a.href=upscaled;
+    a.download=`thugfit_${selectedModel?.name||"model"}_${slot.pose.name.replace(/ /g,"_")}_${factor}x.jpg`;
+    a.click();
+  };
+
+  // ── AI Enhance a specific slot ────────────────────
+  const aiEnhanceSlot = async (idx) => {
+    const slot=slots[idx];
+    if (!slot.image||!geminiKey) return;
+    setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"generating",error:null}:s));
+    try {
+      const base64=slot.image.split(",")[1];
+      const img=await callGemini(geminiKey,[
+        {inlineData:{mimeType:"image/jpeg",data:base64}},
+        {text:"You are a professional photo retoucher. Enhance the quality of this product photography image: sharpen details, improve lighting clarity, make colours more accurate and vivid, increase overall sharpness and professional finish. The product, model, pose, and white background must stay EXACTLY the same — only improve the visual quality and sharpness."},
+      ],0.15);
+      const raw=`data:${img.mimeType};base64,${img.data}`;
+      const processed=await canvasResize(raw,outSize.w,outSize.h,0.95);
+      setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",image:processed,error:null}:s));
+      saveImageToGallery(processed,{modelName:selectedModel?.name,modelTag:selectedModel?.tag,garmentType,poseName:slot.pose.name,gender});
+    } catch(e) {
+      setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",error:null}:s));
     }
   };
 
@@ -943,13 +1000,25 @@ export default function App() {
                         }
                       </div>
                     }
-                    {s.image&&<div className="slot-ov" style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,#000000c0,transparent)",padding:"18px 7px 7px",display:"flex",gap:4,opacity:0,transition:"opacity .2s"}}>
-                      <button onClick={()=>downloadSlot(s)} style={{flex:1,background:"#00000060",border:"none",color:"#fff",padding:"4px 0",borderRadius:4,cursor:"pointer",fontSize:9}}>⬇</button>
-                      <button onClick={()=>generateSlot(i)} style={{flex:1,background:"#7c3aed80",border:"none",color:"#fff",padding:"4px 0",borderRadius:4,cursor:"pointer",fontSize:9}}>↻</button>
+                    {s.image&&<div className="slot-ov" style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,#000000c0,transparent)",padding:"18px 5px 5px",display:"flex",gap:3,opacity:0,transition:"opacity .2s"}}>
+                      <button onClick={()=>downloadSlot(s)}       title="Download" style={{flex:1,background:"#00000070",border:"none",color:"#fff",padding:"4px 0",borderRadius:3,cursor:"pointer",fontSize:9}}>⬇</button>
+                      <button onClick={()=>downloadUpscaled(s,2)} title="Download 2× upscaled" style={{flex:1,background:"#00000070",border:"1px solid #ffffff30",color:"#fff",padding:"4px 0",borderRadius:3,cursor:"pointer",fontSize:9,fontWeight:700}}>2x</button>
+                      <button onClick={()=>aiEnhanceSlot(i)}      title="AI Enhance quality" style={{flex:1,background:"#7c3aed90",border:"none",color:"#fff",padding:"4px 0",borderRadius:3,cursor:"pointer",fontSize:9}}>✨</button>
+                      <button onClick={()=>generateSlot(i)}       title="Regenerate" style={{flex:1,background:"#2563eb80",border:"none",color:"#fff",padding:"4px 0",borderRadius:3,cursor:"pointer",fontSize:9}}>↻</button>
                     </div>}
                   </div>
-                  <div style={{padding:"6px 8px",borderTop:"1px solid",borderColor:slotBorder(s)}}>
-                    <div style={{fontSize:9,fontWeight:700,color:s.status==="done"?"#4ade80":s.status==="error"?"#ef4444":"#2a2a40"}}>{s.pose.name}</div>
+                  <div style={{padding:"5px 7px",borderTop:"1px solid",borderColor:slotBorder(s)}}>
+                    <div style={{fontSize:9,fontWeight:700,color:s.status==="done"?"#4ade80":s.status==="error"?"#ef4444":"#2a2a40",marginBottom:s.status==="done"?4:0}}>{s.pose.name}</div>
+                    {s.status==="done"&&<>
+                      <input
+                        value={slotComments[i]}
+                        onChange={e=>{const c=[...slotComments];c[i]=e.target.value;setSlotComments(c);}}
+                        onKeyDown={e=>e.key==="Enter"&&slotComments[i].trim()&&generateSlot(i)}
+                        placeholder="Type changes to redo…"
+                        style={{width:"100%",background:"#0a0a12",border:"1px solid #1e1e30",color:"#e2e8f0",padding:"4px 6px",borderRadius:4,fontSize:9,outline:"none",marginBottom:slotComments[i]?4:0}}
+                      />
+                      {slotComments[i].trim()&&<button onClick={()=>generateSlot(i)} style={{width:"100%",background:"#7c3aed25",border:"1px solid #7c3aed50",color:"#a78bfa",padding:"3px 0",borderRadius:4,cursor:"pointer",fontSize:9,fontWeight:700}}>↻ Redo with note</button>}
+                    </>}
                   </div>
                 </div>
               ))}
