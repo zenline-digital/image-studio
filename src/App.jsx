@@ -1,1505 +1,860 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
-// ─── IndexedDB Gallery ────────────────────────────────────────────────────────
-const DB_NAME = "ImageStudioGallery", DB_VERSION = 1, STORE = "images";
+// ═══════════════════════════════════════════════════
+//  CONSTANTS — MODELS
+// ═══════════════════════════════════════════════════
+const GARMENT_TYPES = ["T-Shirt","Tank Top","Shorts","Leggings","Sports Bra","Hoodie","Joggers","Zip Jacket","Gym Vest","Long Sleeve Top","Polo Shirt","Compression Tights"];
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { keyPath:"id", autoIncrement:true });
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbSave(record) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const req = tx.objectStore(STORE).add(record);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbGetAll() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).getAll();
-    req.onsuccess = () => resolve(req.result.reverse()); // newest first
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbDelete(id) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const req = tx.objectStore(STORE).delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbClear() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const req = tx.objectStore(STORE).clear();
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-const PRODUCT_TYPES = ["T-Shirt","Leggings","Sports Bra","Hoodie","Shorts","Tank Top","Joggers","Jacket","Compression Shirt","Compression Shorts","Sports Dress","Crop Top","Long Sleeve Shirt","Quarter Zip","Polo Shirt","Sweatshirt","Track Pants","Windbreaker","Vest","Base Layer Top","Base Layer Bottom","Swimwear"];
-const GENDERS = ["Unisex","Men's","Women's","Youth"];
-const MODELS_MALE = [
-  "Athletic European male model, 6ft 1in, lean muscular physique, chiseled jawline, short dark hair, Mediterranean complexion",
-  "Athletic Middle Eastern male model, 6ft, muscular athletic build, strong jaw, dark short hair, olive skin tone",
-  "Athletic Latin male model, 6ft, defined muscular physique, sharp features, dark hair, light olive skin",
-  "Athletic European male model, 6ft 2in, bodybuilder physique, wide shoulders, blond short hair, fair skin",
-  "Athletic male model, 5ft 11in, lean runner physique, Mediterranean features, dark stubble, olive complexion",
-  "Athletic European male model, 6ft, V-taper muscular build, square jaw, brown short hair, fair complexion",
-  "Athletic male model, 6ft 1in, powerlifter build, strong broad shoulders, light stubble, Mediterranean skin tone",
-  "Athletic male model, 6ft, defined abs and arms, sharp European features, clean shaven, olive skin",
+const MALE_MODELS = [
+  {id:"m1", name:"Kai",     tag:"East Asian",       desc:"Athletic East Asian male, 26 years old, lean defined muscular physique, short black neatly styled hair, sharp Korean jawline, clear complexion, confident expression"},
+  {id:"m2", name:"Arjun",   tag:"South Asian",      desc:"Athletic South Asian male, 29 years old, medium-dark complexion, short black hair, strong muscular build, defined shoulders, sharp Indian features"},
+  {id:"m3", name:"Marcus",  tag:"West African",     desc:"Athletic West African male, 25 years old, very dark complexion, short natural hair, powerfully built wide shoulders, thick muscular arms, commanding presence"},
+  {id:"m4", name:"Jomo",    tag:"East African",     desc:"Athletic East African male, 27 years old, dark complexion, close-cropped hair, tall lean build with long limbs, high cheekbones, runner's physique"},
+  {id:"m5", name:"Luca",    tag:"European",         desc:"Athletic Southern European male, 28 years old, fair skin, light brown hair, blue-green eyes, well-built gym physique, clean sharp jawline"},
+  {id:"m6", name:"Alexei",  tag:"Eastern European", desc:"Athletic Eastern European male, 27 years old, fair complexion, short dark hair, very strong muscular build, prominent cheekbones, intense expression"},
+  {id:"m7", name:"Tariq",   tag:"Middle Eastern",   desc:"Athletic Lebanese male, 28 years old, warm olive complexion, short black hair, well-groomed dark stubble beard, strong lean build, handsome features"},
+  {id:"m8", name:"Diego",   tag:"Latin",            desc:"Athletic Brazilian male, 25 years old, tan complexion, short dark wavy hair, muscular athletic build, warm skin tone, confident charming expression"},
+  {id:"m9", name:"Yuto",    tag:"Japanese",         desc:"Athletic Japanese male, 27 years old, fair East Asian complexion, short black hair slightly textured, slim very toned physique, refined sharp features"},
+  {id:"m10",name:"Andre",   tag:"African American", desc:"Athletic African-American male, 26 years old, medium-dark complexion, short fade haircut, muscular defined build, broad chest, strong jaw"},
+  {id:"m11",name:"Kofi",    tag:"Ghanaian",         desc:"Athletic Ghanaian male, 28 years old, very dark complexion, shaved head, massively powerful build, thick arms and chest, extremely broad shoulders"},
+  {id:"m12",name:"Rajan",   tag:"Sri Lankan",       desc:"Athletic Sri Lankan male, 26 years old, dark brown complexion, short black hair, lean defined natural musculature, naturally athletic South Asian build"},
+  {id:"m13",name:"Erik",    tag:"Nordic",           desc:"Athletic Scandinavian male, 28 years old, very fair skin, short blond hair, pale blue eyes, tall lean athletic build, defined muscles, Nordic features"},
+  {id:"m14",name:"Malik",   tag:"African American", desc:"Athletic African-American male, 27 years old, dark complexion, short natural textured hair, very muscular defined build, broad shoulders, intense expression"},
+  {id:"m15",name:"Cyrus",   tag:"Persian",          desc:"Athletic Iranian male, 29 years old, medium olive complexion, short dark hair, short trimmed beard, strong lean athletic build, handsome Middle Eastern features"},
+  {id:"m16",name:"Taka",    tag:"Pacific Islander", desc:"Athletic Polynesian male, 26 years old, warm brown complexion, short black hair, stocky powerfully built physique, very broad shoulders, Pacific Islander features"},
+  {id:"m17",name:"Carlos",  tag:"Mexican",          desc:"Athletic Mexican male, 28 years old, medium tan complexion, short dark hair, lean defined athletic build, friendly confident expression, Latin features"},
+  {id:"m18",name:"Amir",    tag:"Arab",             desc:"Athletic Arab male, 27 years old, warm olive complexion, short dark neat hair, clean shaven, lean muscular build, handsome sharp features, UAE look"},
+  {id:"m19",name:"Samson",  tag:"Nigerian",         desc:"Athletic Nigerian male, 26 years old, very dark complexion, short natural hair, extremely broad shoulders, tall powerfully built physique, commanding presence"},
+  {id:"m20",name:"Wei",     tag:"Chinese",          desc:"Athletic Chinese male, 25 years old, fair East Asian complexion, black hair neatly styled with slight wave, slim very toned physique, sharp refined features"},
 ];
 
-const MODELS_FEMALE = [
-  "Athletic European female model, 5ft 9in, lean toned physique, high cheekbones, long dark hair, fair skin",
-  "Athletic Middle Eastern female model, 5ft 8in, toned athletic build, dark long hair, olive skin tone",
-  "Athletic Latin female model, 5ft 8in, lean toned physique, long dark hair, warm olive complexion",
-  "Athletic European female model, 5ft 10in, slim toned build, blonde hair, sharp features, fair skin",
-  "Athletic female model, 5ft 7in, strong toned legs and arms, Mediterranean features, dark wavy hair",
-  "Athletic European female model, 5ft 9in, lean muscular physique, brown hair, light olive skin, sharp jaw",
-  "Athletic female model, 5ft 8in, defined athletic build, long dark hair, European features, fair complexion",
-  "Athletic female model, 5ft 10in, model physique, high cheekbones, straight dark hair, olive skin",
+const FEMALE_MODELS = [
+  {id:"f1", name:"Soo-Jin",  tag:"Korean",               desc:"Athletic Korean female, 24 years old, lean toned build, long black straight hair, clear fair complexion, high cheekbones, graceful features, fitness model physique"},
+  {id:"f2", name:"Priya",    tag:"South Asian",           desc:"Athletic South Asian female, 26 years old, warm golden complexion, long dark hair, toned defined physique, beautiful Indian features, high cheekbones, confident"},
+  {id:"f3", name:"Amara",    tag:"West African",          desc:"Athletic West African female, 24 years old, very dark complexion, natural afro hair, powerfully toned build, wide shoulders, beautiful strong features"},
+  {id:"f4", name:"Zara",     tag:"East African",          desc:"Athletic East African female, 25 years old, dark complexion, long box braids, tall lean build, very long legs, refined high cheekbones, elegant"},
+  {id:"f5", name:"Emma",     tag:"European",              desc:"Athletic Northern European female, 25 years old, fair skin, long blonde hair, light blue eyes, toned athletic build with feminine curves, bright smile"},
+  {id:"f6", name:"Sofia",    tag:"Southern European",     desc:"Athletic Italian female, 26 years old, medium-fair complexion, long brunette hair, green eyes, fit curvy athletic build, warm Mediterranean features"},
+  {id:"f7", name:"Layla",    tag:"Lebanese",              desc:"Athletic Lebanese female, 25 years old, warm olive complexion, long dark wavy hair, lean toned figure, almond-shaped dark eyes, beautiful Arab features"},
+  {id:"f8", name:"Isabella", tag:"Latin",                 desc:"Athletic Brazilian female, 24 years old, warm tan complexion, long dark wavy hair, curvy athletic build, striking Latina features, warm confident smile"},
+  {id:"f9", name:"Yuki",     tag:"Japanese",              desc:"Athletic Japanese female, 24 years old, fair East Asian complexion, straight black hair to shoulders, slim very toned physique, delicate refined features"},
+  {id:"f10",name:"Mia",      tag:"Mixed Heritage",        desc:"Athletic mixed-heritage female, 25 years old, medium caramel complexion, curly dark hair, lean defined athletic build, striking mixed European-African features"},
+  {id:"f11",name:"Aisha",    tag:"West African",          desc:"Athletic West African female, 24 years old, very dark complexion, short natural hair, powerfully toned build, broad shoulders, strong beautiful features"},
+  {id:"f12",name:"Nisha",    tag:"Southeast Asian",       desc:"Athletic Thai female, 25 years old, warm medium complexion, long black hair, lean defined physique, graceful Southeast Asian features, athletic and elegant"},
+  {id:"f13",name:"Astrid",   tag:"Nordic",                desc:"Athletic Scandinavian female, 26 years old, very fair skin, long blonde hair, light blue eyes, tall lean athletic build, classic Nordic fitness model look"},
+  {id:"f14",name:"Keisha",   tag:"African American",      desc:"Athletic African-American female, 25 years old, medium-dark complexion, natural curly hair, toned athletic build, beautiful strong features, radiant smile"},
+  {id:"f15",name:"Leila",    tag:"Persian",               desc:"Athletic Iranian female, 25 years old, warm golden olive complexion, long dark wavy hair, lean toned figure, beautiful sharp Middle Eastern features"},
+  {id:"f16",name:"Mei",      tag:"Chinese",               desc:"Athletic Chinese female, 24 years old, fair complexion, sleek black bob haircut, lean defined muscular build, sharp refined features, modern athletic look"},
+  {id:"f17",name:"Camila",   tag:"Venezuelan",            desc:"Athletic Venezuelan female, 26 years old, medium complexion, long dark wavy hair, curvy toned athletic figure, striking Latina features, beautiful and fit"},
+  {id:"f18",name:"Nadia",    tag:"Mixed African/European",desc:"Athletic mixed African-European female, 24 years old, warm caramel complexion, curly light-brown hair, lean defined athletic build, striking mixed features"},
+  {id:"f19",name:"Fatou",    tag:"Senegalese",            desc:"Athletic Senegalese female, 25 years old, very dark complexion, long micro braids, strong toned build, broad shoulders, tall and powerful, regal presence"},
+  {id:"f20",name:"Aria",     tag:"Mediterranean",         desc:"Athletic Greek female, 26 years old, warm medium olive complexion, long dark wavy hair, dark expressive eyes, lean fit physique, striking Mediterranean beauty"},
 ];
 
-const POSES = {
-  Standard:[
-    {id:"hero_front",name:"Hero Front",desc:"Front-facing, arms at sides, centered, confident stance. Full garment visible, properly centered."},
-    {id:"back_view",name:"Back View",desc:"Straight rear view, full back of garment visible, properly centered."},
-    {id:"three_quarter",name:"¾ Front Left",desc:"Body angled 45° to the left, natural casual stance, mostly front visible."},
-    {id:"upper_body",name:"Upper Body Close-Up",desc:"Framed from waist up, chest design and fabric texture are the hero."},
-  ],
-  Action:[
-    {id:"running",name:"Running Stride",desc:"Mid-stride running, one leg extended forward, arms in natural running motion."},
-    {id:"jump",name:"Victory Jump",desc:"Two-foot jump, arms raised in celebration, full energy."},
-    {id:"lunge",name:"Forward Lunge",desc:"Deep forward lunge, front knee at 90°, arms extended for balance."},
-    {id:"squat",name:"Deep Squat",desc:"Parallel squat position, arms forward for balance, showing lower garment."},
-    {id:"sprint_start",name:"Sprint Start",desc:"Low explosive sprint start position, leaning forward aggressively."},
-    {id:"box_jump",name:"Box Jump",desc:"Mid-air during box jump, knees tucked, powerful athletic moment."},
-    {id:"burpee",name:"Burpee",desc:"Jumping phase of burpee, arms overhead, full body visible."},
-    {id:"plank",name:"Plank Hold",desc:"Perfect plank position, showing back panel and fit under tension."},
-    {id:"deadlift",name:"Deadlift",desc:"Standing with weights, showing garment performance under load."},
-  ],
-  Lifestyle:[
-    {id:"hands_hips",name:"Hands on Hips",desc:"Both hands on hips, front-facing, confident power pose."},
-    {id:"arms_crossed",name:"Arms Crossed",desc:"Arms folded across chest, strong confident look."},
-    {id:"natural_walk",name:"Natural Walk",desc:"Casual walking stride, relaxed and natural movement."},
-    {id:"power_stance",name:"Power Stance",desc:"Wide stance, hands clasped in front, authoritative."},
-    {id:"shoulder_look",name:"Shoulder Glance",desc:"Walking away, glancing back over shoulder — editorial feel."},
-    {id:"side_stretch",name:"Side Stretch",desc:"Arms overhead side stretch clearly showing waistband detail."},
-    {id:"water_break",name:"Water Break",desc:"Drinking from bottle post-workout, relaxed lifestyle pose."},
-    {id:"earbuds",name:"Earbuds In",desc:"Adjusting earbuds, about to start workout, energetic."},
-    {id:"selfie_pose",name:"Mirror Selfie",desc:"Gym mirror selfie style showing front of garment clearly."},
-    {id:"meditation",name:"Meditation Sit",desc:"Cross-legged seated, hands on knees, calm focus."},
-    {id:"cool_down",name:"Cool Down Walk",desc:"Hands behind head, walking cool-down, post-workout."},
-    {id:"phone_check",name:"Phone Check",desc:"Checking smartwatch or phone, active lifestyle context."},
-  ],
-  Yoga:[
-    {id:"warrior",name:"Warrior Pose",desc:"Warrior I, arms extended overhead, strong stance."},
-    {id:"side_angle",name:"Extended Side",desc:"Side angle pose, one arm reaching overhead elegantly."},
-    {id:"forward_fold",name:"Forward Fold",desc:"Standing forward fold showing back of legs and top."},
-    {id:"tree_balance",name:"Tree Balance",desc:"One-legged tree pose, arms overhead, perfect balance."},
-    {id:"downward_dog",name:"Downward Dog",desc:"Classic downward dog clearly showing back panel of garment."},
-    {id:"cobra",name:"Cobra Pose",desc:"Cobra position showing front of sports bra or top."},
-    {id:"pigeon",name:"Pigeon Pose",desc:"Seated pigeon stretch showing leggings or shorts detail."},
-  ],
-  "Back Views":[
-    {id:"back_hips",name:"Back Hands Hips",desc:"Back view, hands on hips, clearly showing rear panel."},
-    {id:"back_right",name:"Back ¾ Right",desc:"Three-quarter rear angle from right side of model."},
-    {id:"back_left",name:"Back ¾ Left",desc:"Three-quarter rear angle from left side of model."},
-  ],
-  Detail:[
-    {id:"collar",name:"Collar Detail",desc:"Close-up of neckline and collar construction quality."},
-    {id:"sleeve",name:"Sleeve Detail",desc:"Close-up of sleeve cuff and hem stitching precision."},
-    {id:"hem_detail",name:"Hem Detail",desc:"Close-up of bottom hem, waistband or drawstring detail."},
-    {id:"fabric_macro",name:"Fabric Macro",desc:"Extreme close-up of fabric texture and weave, premium quality visible."},
-    {id:"logo_feature",name:"Logo Feature",desc:"Close-up centred on logo placement and print quality."},
-  ],
-  "Flat Lay":[
-    {id:"flat_front",name:"Flat Lay – Front",desc:"Garment laid flat on white surface, front up, top-down overhead shot, front sid..."},
-    {id:"flat_back",name:"Flat Lay – Back",desc:"Garment flat, back side up, overhead top-down shot, clean white surface."},
-    {id:"flat_folded",name:"Flat Lay – Folded",desc:"Garment neatly folded on white surface, branded presentation."},
-  ],
-  Angles:[
-    {id:"left_profile",name:"Left Side Profile",desc:"Pure left-side silhouette showing garment side seam and fit."},
-    {id:"right_profile",name:"Right Side Profile",desc:"Pure right-side silhouette showing garment side seam and fit."},
-    {id:"low_angle",name:"Low Angle Power",desc:"Camera below waist shooting up, powerful athletic stance."},
-    {id:"overhead_edit",name:"Overhead Editorial",desc:"Top-down editorial flat lay with props and accessories."},
-  ],
-  Floor:[
-    {id:"seated_cross",name:"Seated Cross-Legged",desc:"Seated cross-legged on floor, casual athletic lifestyle."},
-    {id:"low_kneel",name:"Low Kneeling Lunge",desc:"Low kneeling lunge showing leg garment detail clearly."},
-  ],
-  Fashion:[
-    {id:"hand_heart",name:"Hand on Heart",desc:"One hand over heart, slight lean forward, emotional brand connection."},
-    {id:"jump_kick",name:"Jump Kick",desc:"Mid-air side kick, dynamic action editorial shot."},
-  ],
-};
-
-const ALL_POSES = Object.entries(POSES).flatMap(([cat,poses]) => poses.map(p => ({...p, category:cat})));
-
-const CAT_COLORS = {Standard:"#6366f1",Action:"#ef4444",Lifestyle:"#f59e0b",Yoga:"#10b981","Back Views":"#8b5cf6",Detail:"#06b6d4","Flat Lay":"#ec4899",Angles:"#f97316",Floor:"#84cc16",Fashion:"#a855f7"};
+// ═══════════════════════════════════════════════════
+//  CONSTANTS — POSES
+// ═══════════════════════════════════════════════════
+const POSE_POOL = [
+  {id:"hero_front",   name:"Hero Front",         cat:"Standard", desc:"Full body front-facing, arms at sides, centered, confident athletic stance, complete garment fully visible from head to feet"},
+  {id:"back_view",    name:"Back View",           cat:"Standard", desc:"Turned completely around showing full back, back panel of garment visible, looking away or slight over-shoulder glance"},
+  {id:"front_left",   name:"¾ Front Left",        cat:"Standard", desc:"Body angled 45° to the left, natural casual stance, mostly front of garment visible, slight weight shift"},
+  {id:"upper_close",  name:"Upper Body Close-Up", cat:"Standard", desc:"Framed from waist to top of head only, chest and upper body in focus, garment chest design and collar detail prominent"},
+  {id:"flat_lay",     name:"Flat Lay – Front",    cat:"Flat Lay", desc:"Garment laid flat on pure white surface, front side up, top-down overhead shot, perfectly centered and neat"},
+  {id:"action_run",   name:"Running Stride",      cat:"Action",   desc:"Mid-stride running pose, one leg extended forward, arms in natural running motion, dynamic athletic movement, full body"},
+  {id:"hands_hips",   name:"Hands on Hips",       cat:"Lifestyle",desc:"Both hands on hips, front-facing, confident power pose, full garment front visible, strong athletic expression"},
+  {id:"fabric_macro", name:"Fabric Macro",        cat:"Detail",   desc:"Extreme close-up of the fabric texture and weave, logo or design element in sharp focus, premium material quality visible"},
+  {id:"side_profile", name:"Side Profile",        cat:"Standard", desc:"Body turned exactly 90° to the side, full side profile visible, arms natural, garment side silhouette and seams clear"},
+  {id:"arms_crossed", name:"Arms Crossed",        cat:"Lifestyle",desc:"Arms crossed over chest, front-facing, relaxed confident expression, upper to full body framing, casual power pose"},
+  {id:"squat_pose",   name:"Squat Position",      cat:"Action",   desc:"In a deep squat position showing flexibility and athleticism, front-facing, garment fit and stretch visible"},
+  {id:"overhead_reach",name:"Overhead Reach",     cat:"Action",   desc:"Arms raised overhead or reaching up, showing garment torso and waist area, full body, dynamic stretching motion"},
+];
 
 const DEFAULT_SLOTS = [
-  {poseId:"hero_front",varied:false},{poseId:"back_view",varied:false},
-  {poseId:"three_quarter",varied:false},{poseId:"upper_body",varied:false},
-  {poseId:"flat_front",varied:false},{poseId:"running",varied:true},
-  {poseId:"hands_hips",varied:true},{poseId:"fabric_macro",varied:true},
+  POSE_POOL[0], // Hero Front
+  POSE_POOL[1], // Back View
+  POSE_POOL[2], // ¾ Front Left
+  POSE_POOL[3], // Upper Body Close-Up
+  POSE_POOL[4], // Flat Lay
+  POSE_POOL[5], // Running Stride
+  POSE_POOL[6], // Hands on Hips
+  POSE_POOL[7], // Fabric Macro
 ];
 
-const C = {bg:"#0D0D14",surf:"#13131E",card:"#1A1A28",border:"#252538",purple:"#6366f1",teal:"#10b981",amber:"#f59e0b",danger:"#ef4444",text:"#F0F0F8",muted:"#6B7090"};
+const OUTPUT_SIZES = [
+  {label:"1080 × 1350  (Instagram Portrait 4:5)", w:1080, h:1350},
+  {label:"1080 × 1080  (Instagram Square 1:1)",   w:1080, h:1080},
+  {label:"1948 × 2656  (Large Portrait — Print)",  w:1948, h:2656},
+  {label:"1080 × 1920  (Stories / Reels 9:16)",   w:1080, h:1920},
+];
 
-async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null, logoBase64=null, logoMime=null) {
-  const parts = [];
-  if(refImageBase64 && refMime){
-    parts.push({inlineData:{mimeType:refMime, data:refImageBase64}});
-    parts.push({text:"REFERENCE PRODUCT PHOTO: This is the exact garment to keep in the new image. Keep every detail of the garment identical. Only replace the model/person."});
+const CAT_COLOR = {Standard:"#3b82f6",Action:"#f97316","Flat Lay":"#8b5cf6",Lifestyle:"#06b6d4",Detail:"#ec4899"};
+
+// ═══════════════════════════════════════════════════
+//  API UTILITIES
+// ═══════════════════════════════════════════════════
+async function callGemini(apiKey, parts, temperature = 0.25) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      contents:[{parts}],
+      generationConfig:{responseModalities:["IMAGE","TEXT"], temperature},
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err.error?.message || `Gemini API error ${res.status}`);
   }
-  if(logoBase64 && logoMime){
-    parts.push({inlineData:{mimeType:logoMime, data:logoBase64}});
-    parts.push({text:"BRAND LOGO: If replacing the logo, use exactly this logo image. Keep it small, same position as reference."});
+  const data = await res.json();
+  const rp = data.candidates?.[0]?.content?.parts || [];
+  const img = rp.find(p => p.inlineData?.data);
+  if (!img) {
+    const txt = rp.find(p=>p.text)?.text || "";
+    throw new Error(txt || "No image returned. Please retry.");
   }
-  parts.push({text: prompt});
-
-  // Try Imagen 3 first (best quality, handles fabric texture and patterns)
-  try {
-    const imgPrompt = parts.map(p => p.text || "").filter(Boolean).join("\n\n");
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        instances:[{prompt: imgPrompt}],
-        parameters:{sampleCount:1, aspectRatio:"3:4"}
-      })
-    });
-    const d = await r.json();
-    if(d.predictions?.[0]?.bytesBase64Encoded){
-      return {data:d.predictions[0].bytesBase64Encoded, mime:"image/png"};
-    }
-    if(d.error) throw new Error(d.error.message);
-  } catch(e) {
-    if(e.message?.includes("not found") || e.message?.includes("not support")) {
-      // Fall through to Gemini Flash
-    } else {
-      throw e;
-    }
-  }
-
-  // Fallback: Gemini Flash Lite image
-  const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
-  });
-  const d2 = await r2.json();
-  if(d2.error) throw new Error(d2.error.message);
-  for(const part of d2.candidates?.[0]?.content?.parts||[])
-    if(part.inlineData?.data) return {data:part.inlineData.data,mime:part.inlineData.mimeType};
-  throw new Error("No image returned — check your API key and billing");
+  return img.inlineData;
 }
 
-// ─── Supabase shared gallery ──────────────────────────────────────────────────
-const SUPA_URL = "https://ioniqxioapcdgenpksex.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvbmlxeGlvYXBjZGdlbnBrc2V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNDc1MDIsImV4cCI6MjEwMDcyMzUwMn0.PS80PFMqBYMf0e6uiYvTFk90gF7a7jo97C-dzzxUGho";
-
-async function supaGalleryLoad() {
-  const r = await fetch(`${SUPA_URL}/rest/v1/gallery_images?order=created_at.desc&limit=200`, {
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-  });
-  return r.json();
-}
-
-async function supaGallerySave(record) {
-  const r = await fetch(`${SUPA_URL}/rest/v1/gallery_images`, {
-    method: "POST",
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
-    body: JSON.stringify(record)
-  });
-  return r.json();
-}
-
-async function supaGalleryDelete(id) {
-  await fetch(`${SUPA_URL}/rest/v1/gallery_images?id=eq.${id}`, {
-    method: "DELETE",
-    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-  });
-}
-
-// Compress full image to small thumbnail for Supabase storage (~10KB)
-async function toThumbnail(fullImageDataUrl) {
+async function toOutputSpec(dataURL, w, h, quality = 0.95) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 200; canvas.height = 267;
-      canvas.getContext("2d").drawImage(img, 0, 0, 200, 267);
-      resolve(canvas.toDataURL("image/jpeg", 0.65));
-    };
-    img.onerror = () => resolve(null);
-    img.src = fullImageDataUrl;
-  });
-}
-
-// ─── Image Enhancement ────────────────────────────────────────────────────────
-async function enhanceImage(imageDataUrl, scale=1.5) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const W = Math.round(img.width * scale);
-      const H = Math.round(img.height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = H;
-      const ctx = canvas.getContext("2d");
-
-      // White base
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
       ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, W, H);
-
-      // High quality upscale pass 1
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, W, H);
-
-      // Sharpening via pixel convolution
-      const imageData = ctx.getImageData(0, 0, W, H);
-      const d = imageData.data;
-      const out = new Uint8ClampedArray(d.length);
-      const kernel = [0,-1,0,-1,5,-1,0,-1,0]; // sharpen kernel
-
-      for(let y = 1; y < H-1; y++){
-        for(let x = 1; x < W-1; x++){
-          for(let c = 0; c < 3; c++){
-            let s = 0;
-            for(let ky = -1; ky <= 1; ky++){
-              for(let kx = -1; kx <= 1; kx++){
-                s += d[((y+ky)*W+(x+kx))*4+c] * kernel[(ky+1)*3+(kx+1)];
-              }
-            }
-            out[(y*W+x)*4+c] = Math.max(0, Math.min(255, s));
-          }
-          out[(y*W+x)*4+3] = 255;
-        }
-      }
-      // Copy edges unchanged
-      for(let x = 0; x < W; x++){
-        for(let c = 0; c < 4; c++){
-          out[x*4+c] = d[x*4+c];
-          out[((H-1)*W+x)*4+c] = d[((H-1)*W+x)*4+c];
-        }
-      }
-      for(let y = 0; y < H; y++){
-        for(let c = 0; c < 4; c++){
-          out[(y*W)*4+c] = d[(y*W)*4+c];
-          out[(y*W+W-1)*4+c] = d[(y*W+W-1)*4+c];
-        }
-      }
-
-      ctx.putImageData(new ImageData(out, W, H), 0, 0);
-      resolve(canvas.toDataURL("image/jpeg", 1.0)); // max JPEG quality
+      ctx.fillRect(0, 0, w, h);
+      const ratio = Math.min(w / img.width, h / img.height);
+      const sw = Math.round(img.width * ratio);
+      const sh = Math.round(img.height * ratio);
+      ctx.drawImage(img, (w-sw)/2, (h-sh)/2, sw, sh);
+      resolve(c.toDataURL("image/jpeg", quality));
     };
-    img.onerror = reject;
-    img.src = imageDataUrl;
+    img.onerror = () => resolve(dataURL);
+    img.src = dataURL;
   });
 }
 
-async function analyzeProductPhoto(base64Image, mime) {
-  const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 500,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: mime, data: base64Image } },
-          { type: "text", text: "You are analyzing an activewear product photo. Return ONLY a valid JSON object with exactly these two fields, no markdown, no explanation:\n{\"color\": \"the exact color name of the main garment (e.g. Jet Black, Navy Blue, Charcoal Grey, Forest Green, Off White)\", \"designNotes\": \"2-4 sentences describing: (1) logo placement — specify exactly where it appears: front chest only, front and back, sleeve, etc. and its size; (2) patterns or graphics visible; (3) special design features (mesh panels, reflective strips, color blocks, seam details, drawstrings, zip pockets, waistband type, piping); (4) fabric texture and construction\"}" }
-        ]
-      }]
-    })
-  });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error.message);
-  const text = d.content?.[0]?.text || "";
-  try {
-    const cleaned = text.replace(/```json\n?/g,"").replace(/```\n?/g,"").trim();
-    return JSON.parse(cleaned);
-  } catch {
-    return { color: "", designNotes: text };
-  }
-}
-
-async function processImage(base64Data, mime, isWhiteProduct=false) {
-  return new Promise((resolve,reject) => {
+async function resizeSquare(dataURL, size = 280) {
+  return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const W=1948,H=2656,PAD=Math.round(W*0.04);
-      const canvas=document.createElement("canvas");
-      canvas.width=W; canvas.height=H;
-      const ctx=canvas.getContext("2d");
-      ctx.fillStyle="#FFFFFF";
-      ctx.fillRect(0,0,W,H);
-      const scale=Math.min((W-PAD*2)/img.width,(H-PAD*2)/img.height);
-      const sw=img.width*scale,sh=img.height*scale;
-      const ox=Math.round((W-sw)/2), oy=Math.round((H-sh)/2);
-      ctx.imageSmoothingEnabled=true;
-      ctx.imageSmoothingQuality="high";
-      ctx.drawImage(img,ox,oy,sw,sh);
+      const c = document.createElement("canvas");
+      c.width = size; c.height = size;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle="#fff";
+      ctx.fillRect(0,0,size,size);
+      const s = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, size, size);
+      resolve(c.toDataURL("image/jpeg", 0.75));
+    };
+    img.onerror = () => resolve(dataURL);
+    img.src = dataURL;
+  });
+}
 
-      const imageData=ctx.getImageData(0,0,W,H);
-      const d=imageData.data;
-
-      const sx0=ox+4, sy0=oy+4;
-      const sx1=Math.min(ox+Math.round(sw)-5, W-5);
-      const sy1=Math.min(oy+Math.round(sh)-5, H-5);
-      const samples=[[sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
-      let rSum=0,gSum=0,bSum=0;
-      samples.forEach(([x,y])=>{const i=(y*W+x)*4; rSum+=d[i];gSum+=d[i+1];bSum+=d[i+2];});
-      const bgR=Math.round(rSum/4), bgG=Math.round(gSum/4), bgB=Math.round(bSum/4);
-
-      const isGray = bgR < 235 && Math.abs(bgR-bgG)<20 && Math.abs(bgG-bgB)<20;
-      const isBlue = bgB > bgR+20 && bgB > 150; // blue background for white garments
-      const tol = (isGray||isBlue) ? 22 : 12;
-
-      const visited=new Uint8Array(W*H);
-      const isBg=(i)=>Math.abs(d[i]-bgR)<tol && Math.abs(d[i+1]-bgG)<tol && Math.abs(d[i+2]-bgB)<tol;
-
-      const seeds=[[0,0],[W-1,0],[0,H-1],[W-1,H-1],[sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
+// Canvas-based background removal for Enhance mode
+async function canvasEnhance(dataURL, outW, outH, quality) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      // Step 1: remove background
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img,0,0);
+      const id = ctx.getImageData(0,0,c.width,c.height);
+      const d = id.data;
+      // Sample bg from corners (offset 5px inside to avoid border artifacts)
+      const off = Math.max(5, Math.round(Math.min(c.width,c.height)*0.02));
+      const samples = [];
+      for(let dx=-off;dx<=off;dx+=off) for(let dy=-off;dy<=off;dy+=off){
+        const px = Math.max(0,Math.min(c.width-1,(dx>=0?dx:c.width+dx)));
+        const py = Math.max(0,Math.min(c.height-1,(dy>=0?dy:c.height+dy)));
+        const pi=(py*c.width+px)*4;
+        samples.push([d[pi],d[pi+1],d[pi+2]]);
+      }
+      const bgR=Math.round(samples.reduce((s,v)=>s+v[0],0)/samples.length);
+      const bgG=Math.round(samples.reduce((s,v)=>s+v[1],0)/samples.length);
+      const bgB=Math.round(samples.reduce((s,v)=>s+v[2],0)/samples.length);
+      // Flood fill from edges
+      const visited=new Uint8Array(c.width*c.height);
       const queue=[];
-      seeds.forEach(([x,y])=>{
-        const p=y*W+x;
-        if(!visited[p]&&isBg(p*4)){visited[p]=1;queue.push(p);}
-      });
+      for(let x=0;x<c.width;x++){queue.push(x,0);queue.push(x,(c.height-1)*c.width);}
+      for(let y=1;y<c.height-1;y++){queue.push(0,y*c.width);queue.push(c.width-1+y*c.width,0);}
+      const thresh=45;
       while(queue.length){
-        const pos=queue.pop(); const px=pos*4;
-        d[px]=255;d[px+1]=255;d[px+2]=255;
-        const x=pos%W,y=Math.floor(pos/W);
-        for(const[dx,dy]of[[0,-1],[0,1],[-1,0],[1,0]]){
-          const nx=x+dx,ny=y+dy;
-          if(nx>=0&&nx<W&&ny>=0&&ny<H){
-            const np=ny*W+nx;
-            if(!visited[np]&&isBg(np*4)){visited[np]=1;queue.push(np);}
-          }
-        }
+        const flat=queue.pop(); const y2=Math.floor(flat/c.width); const x2=flat%c.width;
+        if(x2<0||x2>=c.width||y2<0||y2>=c.height||visited[flat]) continue;
+        visited[flat]=1;
+        const pi=flat*4;
+        if(Math.abs(d[pi]-bgR)+Math.abs(d[pi+1]-bgG)+Math.abs(d[pi+2]-bgB)>thresh*3) continue;
+        d[pi]=255;d[pi+1]=255;d[pi+2]=255;
+        queue.push(flat+1,flat-1,flat+c.width,flat-c.width);
       }
-
-      // White garment: aggressively whiten neutral gray areas (fabric shadows + camo texture)
-      if(isWhiteProduct){
-        for(let i=0;i<d.length;i+=4){
-          const r=d[i],g=d[i+1],b=d[i+2];
-          const avg=(r+g+b)/3;
-          // Exclude skin: skin always has R noticeably higher than B (warm tone)
-          // Exclude dark details: logo, hair, dark clothing (avg < 80)
-          // Exclude pure white (already white, avg > 245)
-          const isSkin = (r-b) > 45 && r > 140; // warm tone = skin
-          const isDark = avg < 80;
-          const isPureWhite = avg > 245;
-          if(!isSkin && !isDark && !isPureWhite){
-            // Push ALL remaining gray/off-white toward white
-            const boost = Math.round((255-avg)*0.88);
-            d[i]=Math.min(253,r+boost);
-            d[i+1]=Math.min(253,g+boost);
-            d[i+2]=Math.min(253,b+boost);
-          }
-        }
-      }
-
-      ctx.putImageData(imageData,0,0);
-      resolve(canvas.toDataURL("image/jpeg",0.97));
+      ctx.putImageData(id,0,0);
+      // Step 2: output spec
+      const c2=document.createElement("canvas");
+      c2.width=outW;c2.height=outH;
+      const ctx2=c2.getContext("2d");
+      ctx2.fillStyle="#FFFFFF";
+      ctx2.fillRect(0,0,outW,outH);
+      const r=Math.min(outW/c.width,outH/c.height)*0.9;
+      const sw=c.width*r,sh=c.height*r;
+      ctx2.drawImage(c,(outW-sw)/2,(outH-sh)/2,sw,sh);
+      resolve(c2.toDataURL("image/jpeg",quality));
     };
-    img.onerror=reject;
-    img.src=`data:${mime};base64,${base64Data}`;
+    img.onerror=()=>resolve(dataURL);
+    img.src=dataURL;
   });
 }
 
-function buildPrompt(product, pose, feedback="", hasReference=false) {
-  const {type,gender,color,brand,designNotes,lockedModel} = product;
-  const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
-  const modelDesc = lockedModel || `${gModel} athletic model with fit physique, European or Mediterranean features`;
-
-  const isFlat = pose.category==="Flat Lay";
-  const isDetail = pose.category==="Detail";
-  const isBack = ["back_view","back_hips","back_right","back_left","flat_back"].includes(pose.id);
-
-  const changes = feedback ? `\nADDITIONAL CHANGES: ${feedback}` : "";
-
-  // When reference photo is provided: image-editing approach (most accurate)
-  if(hasReference && !isFlat && !isDetail) {
-    return `You are given a product photo of someone wearing a ${color} ${brand} ${type}.
-
-TASK: Create a new professional product photo keeping the GARMENT COMPLETELY IDENTICAL.
-
-WHAT TO KEEP EXACTLY THE SAME (do not change ANY of these):
-- The ${color} ${brand} ${type} — every single detail: fabric texture, pattern, logo position and size, seams, neckline, hem, fit, length, color
-- Studio lighting style
-- ${isBack ? "Back view pose" : "Front facing pose similar to reference"}
-- Pure white background #FFFFFF
-
-ONLY CHANGE THIS:
-- Replace the model with: ${modelDesc}
-- The new model must be a completely different person — different face, different skin, different hair
-- Model should have neutral confident expression, professional athletic posture
-
-Background: PURE WHITE #FFFFFF. No shadows. High resolution, marketplace quality.${changes}`;
-  }
-
-  // Flat lay — no model needed
-  if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc}${designNotes?` Design details: ${designNotes}.`:""} Pure white background #FFFFFF. Sharp overhead studio lighting, no shadows. Marketplace listing quality. 3:4 portrait.${changes}`;
-
-  // Detail close-up
-  if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc}${designNotes?` Design: ${designNotes}.`:""} Pure white background. Macro studio lighting, razor sharp focus on fabric texture and detail. 3:4 portrait.${changes}`;
-
-  // No reference — text-only generation
-  const isWhite = color.toLowerCase().includes("white")||color.toLowerCase().includes("cream")||color.toLowerCase().includes("ivory");
-  const bgInstr = isWhite
-    ? "Background: soft light blue #B0C8FF. Flat even lighting."
-    : "Background: PURE WHITE #FFFFFF. Even studio lighting.";
-
-  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${pose.desc}${designNotes?`\nProduct design: ${designNotes}.`:""}\n${bgInstr}\nFull body visible. Neutral confident expression. High resolution marketplace quality. 3:4 portrait.${changes}`;
+function buildThumbPrompt(model) {
+  return `Professional fitness model portrait. ${model.desc}. Wearing plain white fitted athletic top. Waist-up shot looking directly at camera. Pure white background. Even studio lighting. High quality commercial photography. No text, no watermarks.`;
 }
 
+function buildSlotPrompt(model, garmentType, pose) {
+  return `You are a professional activewear product photographer.
 
+TASK: I am providing a reference product image of a ${garmentType}. Create a high-quality studio product photo of this EXACT ${garmentType} worn by a fitness model.
+
+PRESERVE THE PRODUCT EXACTLY — THIS IS CRITICAL:
+• Same colors — do not alter any color whatsoever
+• Same logo, text, graphics — replicate with complete pixel-perfect accuracy
+• Same neckline, sleeve length, cut, and silhouette
+• Same fabric texture, seams, stitching, mesh panels, and material finish
+• Same fit — do not make it tighter, looser, shorter, or longer
+
+THE MODEL: ${model.desc}. Physically fit, confident, professional activewear model.
+
+POSE FOR THIS SHOT — "${pose.name}":
+${pose.desc}
+
+TECHNICAL OUTPUT REQUIREMENTS:
+• Background: pure white (#FFFFFF) — absolutely zero shadows or gradients on background
+• Lighting: even professional softbox studio lighting — no harsh directional shadows on garment
+• Sharp focus throughout, commercially print-ready quality
+• The ${garmentType} must be the clear focal point and fully visible as the pose allows
+• Clean professional activewear catalogue photography
+
+STRICTLY PROHIBITED: Do not change product colors, logos, or design. Product must be identical to the reference image.`;
+}
+
+// ═══════════════════════════════════════════════════
+//  MAIN APP
+// ═══════════════════════════════════════════════════
 export default function App() {
-  const [product,setProduct] = useState({name:"",type:"T-Shirt",gender:"Unisex",color:"",brand:"Actiwear",designNotes:"",lockedModel:""});
-  const [slots,setSlots] = useState(DEFAULT_SLOTS.map(s=>({...s,status:"idle",result:null,error:null})));
-  const [apiKey,setApiKey] = useState(()=>{
-    try{return localStorage.getItem("imageStudio_apiKey")||"";}catch{return"";}
-  });
-  const [generating,setGenerating] = useState(false);
-  const [enhancing,setEnhancing] = useState({});
-  const [mode,setMode] = useState("enhance");
-  const [enhancingAll,setEnhancingAll] = useState(false);
-  const [sampleDone,setSampleDone] = useState(false);
-  const [sampleFeedback,setSampleFeedback] = useState("");
-  const [slotFeedback,setSlotFeedback] = useState({index:-1,text:""});
-  const [modelPreview,setModelPreview] = useState(null);
-  const [modelPreviewLoading,setModelPreviewLoading] = useState(false);
-  const [showGallery, setShowGallery] = useState(false);
-  const [gallery, setGallery] = useState([]);
-  const [gallerySearch, setGallerySearch] = useState("");
-  const [galleryLoading, setGalleryLoading] = useState(false);
+  // ── Mode ────────────────────────────────────────
+  const [mode, setMode] = useState("model"); // "model" | "enhance"
 
-  useEffect(() => { loadGallery(); }, []);
+  // ── API Key ────────────────────────────────────
+  const [geminiKey, setGeminiKey] = useState(()=>localStorage.getItem("is_gemini_key")||"");
+  const [showSettings, setShowSettings] = useState(false);
+  const [tempKey, setTempKey] = useState("");
 
-  async function loadGallery() {
-    // PRIMARY: Always load from IndexedDB first (always works, no SQL needed)
-    try {
-      const local = await dbGetAll();
-      if (Array.isArray(local) && local.length > 0) {
-        setGallery(local);
-      }
-    } catch(e) {
-      console.log("IndexedDB load failed:", e.message);
-    }
-    // SECONDARY: Also try Supabase to get items from other team members
-    try {
-      const rows = await supaGalleryLoad();
-      if (Array.isArray(rows) && rows.length > 0) {
-        // Merge with local — add Supabase items not already in IndexedDB
-        setGallery(prev => {
-          const existingFilenames = new Set(prev.map(x => x.filename));
-          const newFromSupabase = rows.filter(r => !existingFilenames.has(r.filename));
-          return [...prev, ...newFromSupabase];
-        });
-      }
-    } catch(e) {
-      // Supabase is optional — silently ignore
-    }
-  }
+  // ── Product inputs ────────────────────────────
+  const [refImage, setRefImage] = useState(null);
+  const [garmentType, setGarmentType] = useState("T-Shirt");
+  const [gender, setGender] = useState("female");
+  const [selectedModel, setSelectedModel] = useState(null);
 
-  async function saveToGallery(imageData, slotIndex, pose) {
-    if (!imageData) return;
-    const thumbnail = await toThumbnail(imageData);
-    const record = {
-      product_name: product.name || "Unnamed",
-      brand: product.brand,
-      type: product.type,
-      color: product.color,
-      gender: product.gender,
-      pose_name: pose?.name || "Unknown",
-      pose_category: pose?.category || "",
-      thumbnail,
-      filename: `${(product.name||"product").replace(/\s+/g,"_")}_${slotIndex+1}_${(pose?.name||"image").replace(/\s+/g,"_")}.jpg`,
-      full_image: imageData,
-      created_at: new Date().toISOString()
-    };
+  // ── Output config ──────────────────────────────
+  const [sizeIdx, setSizeIdx] = useState(0);
+  const outSize = OUTPUT_SIZES[sizeIdx];
 
-    // ALWAYS save to IndexedDB first (primary, never fails)
-    let savedId = null;
-    try {
-      savedId = await dbSave(record);
-    } catch(e) {
-      console.log("IndexedDB save failed:", e.message);
-    }
-
-    // Update gallery state immediately
-    setGallery(prev => [{ ...record, id: savedId }, ...prev]);
-
-    // ALSO try Supabase (secondary, for team sharing) — non-blocking
-    try {
-      await supaGallerySave({ ...record, full_image: null });
-    } catch(e) {
-      // Supabase is optional — no error shown
-    }
-  }
-
-  const [imagesGenerated,setImagesGenerated] = useState(()=>{
-    try{return parseInt(localStorage.getItem("imageStudio_count")||"0");}catch{return 0;}
-  });
-  const [showKeyModal,setShowKeyModal] = useState(false);
-  const [showPosePicker,setShowPosePicker] = useState(null);
-  const [poseSearch,setPoseSearch] = useState("");
-  const [poseCat,setPoseCat] = useState("All");
-  const [refs,setRefs] = useState({front:null,back:null,side:null,logo:null});
-  const [analyzingRef,setAnalyzingRef] = useState(false);
-  const [showLogoLibrary,setShowLogoLibrary] = useState(false);
-  const [logoLibrary,setLogoLibrary] = useState(()=>{
-    try{return JSON.parse(localStorage.getItem("imageStudio_logos")||"[]");}catch{return[];}
-  });
-  const [newLogoName,setNewLogoName] = useState("");
+  // ── Slots (8 poses) ────────────────────────────
+  const [slots, setSlots] = useState(() =>
+    DEFAULT_SLOTS.map((pose, i) => ({idx:i, pose, image:null, status:"idle", error:null}))
+  );
+  const [activePoseSlot, setActivePoseSlot] = useState(null); // slot index being configured
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const stopRef = useRef(false);
 
-  const doneCount = slots.filter(s=>s.status==="done").length;
-  const progress = Math.round((doneCount/8)*100);
+  // ── Enhance mode ──────────────────────────────
+  const [enhancedImage, setEnhancedImage] = useState(null);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [enhanceMode, setEnhanceMode] = useState("canvas"); // "canvas" | "ai"
 
-  function upd(i,patch){setSlots(p=>p.map((s,idx)=>idx===i?{...s,...patch}:s));}
+  // ── Model gallery ─────────────────────────────
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryTab, setGalleryTab] = useState("female");
+  const [thumbs, setThumbs] = useState(()=>{
+    try{return JSON.parse(localStorage.getItem("is_model_thumbs")||"{}")}catch{return {}}
+  });
+  const [thumbLoading, setThumbLoading] = useState({});
+  const [isGenAllThumbs, setIsGenAllThumbs] = useState(false);
+  const genAllRef = useRef(false);
 
-  async function enhanceReference(){
-    // Process uploaded reference photos — clean background, sharpen, upscale
-    // No AI generation needed — uses the actual product photos
-    const refPhotos = [refs.front, refs.back, refs.side].filter(Boolean);
-    if(refPhotos.length === 0){
-      alert("Upload at least one reference photo (Front, Back or Side) first");
-      return;
-    }
-    setEnhancingAll(true);
+  // ── Stats ─────────────────────────────────────
+  const [totalGenerated, setTotalGenerated] = useState(()=>parseInt(localStorage.getItem("is_total_gen")||"0"));
 
-    // Map reference photos to slots
-    const slotMappings = [
-      {slotIdx:0, photo:refs.front||refs.back},     // Hero Front
-      {slotIdx:1, photo:refs.back||refs.front},     // Back View
-      {slotIdx:2, photo:refs.front||refs.back},     // ¾ Front Left
-      {slotIdx:3, photo:refs.front||refs.back},     // Upper Body
-      {slotIdx:4, photo:refs.front||refs.back},     // Flat Lay
-      {slotIdx:5, photo:refs.side||refs.front||refs.back}, // Running
-      {slotIdx:6, photo:refs.front||refs.back},     // Hands on Hips
-      {slotIdx:7, photo:refs.front||refs.back},     // Fabric Macro
-    ].filter(m => m.photo);
+  // ── Gallery ───────────────────────────────────
+  const [savedGallery, setSavedGallery] = useState(()=>{
+    try{return JSON.parse(localStorage.getItem("is_saved_gallery")||"[]")}catch{return []}
+  });
+  const [lightboxImg, setLightboxImg] = useState(null);
 
-    for(const {slotIdx, photo} of slotMappings){
-      upd(slotIdx, {status:"generating", result:null, error:null});
-      try{
-        // Convert dataUrl to base64
-        const base64 = photo.split(",")[1];
-        const mime = photo.startsWith("data:image/png") ? "image/png" : "image/jpeg";
-        // Process: white background + sharpen + upscale to 1948×2656
-        const processed = await processImage(base64, mime);
-        // Apply additional sharpening pass
-        const enhanced = await enhanceImage(processed, 1.0); // same size, just sharpen + max quality
-        upd(slotIdx, {status:"done", result:enhanced});
-        trackImageGenerated();
-        const pose = ALL_POSES.find(p=>p.id===slots[slotIdx].poseId)||ALL_POSES[0];
-        await saveToGallery(enhanced, slotIdx, pose);
-      }catch(e){
-        upd(slotIdx, {status:"error", error:e.message});
+  const fileRef = useRef();
+
+  // ── Settings ──────────────────────────────────
+  const openSettings = () => { setTempKey(geminiKey); setShowSettings(true); };
+  const saveSettings = () => {
+    localStorage.setItem("is_gemini_key", tempKey.trim());
+    setGeminiKey(tempKey.trim());
+    setShowSettings(false);
+  };
+
+  // ── File upload ───────────────────────────────
+  const handleFile = f => {
+    if (!f || !f.type.startsWith("image/")) return;
+    const r = new FileReader();
+    r.onload = e => {
+      const url = e.target.result;
+      setRefImage({data:url.split(",")[1], mime:f.type, preview:url});
+      setSlots(prev=>prev.map(s=>({...s,image:null,status:"idle",error:null})));
+      setEnhancedImage(null);
+    };
+    r.readAsDataURL(f);
+  };
+
+  // ── Model thumbnails ──────────────────────────
+  const saveThumb = useCallback((id, dataURL) => {
+    setThumbs(prev=>{
+      const u={...prev,[id]:dataURL};
+      try{localStorage.setItem("is_model_thumbs",JSON.stringify(u))}catch{
+        try{localStorage.setItem("is_model_thumbs",JSON.stringify({[id]:dataURL}))}catch{}
       }
+      return u;
+    });
+  },[]);
+
+  const generateThumb = useCallback(async (model) => {
+    if (!geminiKey||thumbs[model.id]||thumbLoading[model.id]) return;
+    setThumbLoading(p=>({...p,[model.id]:true}));
+    try {
+      const img = await callGemini(geminiKey,[{text:buildThumbPrompt(model)}],0.45);
+      const r = await resizeSquare(`data:${img.mimeType};base64,${img.data}`,280);
+      saveThumb(model.id,r);
+    } catch {}
+    finally { setThumbLoading(p=>({...p,[model.id]:false})); }
+  },[geminiKey,thumbs,thumbLoading,saveThumb]);
+
+  const generateAllThumbs = async () => {
+    if (!geminiKey) return;
+    setIsGenAllThumbs(true); genAllRef.current=true;
+    const models = galleryTab==="male"?MALE_MODELS:FEMALE_MODELS;
+    const missing = models.filter(m=>!thumbs[m.id]);
+    for (let i=0;i<missing.length;i+=3) {
+      if(!genAllRef.current) break;
+      await Promise.all(missing.slice(i,i+3).map(generateThumb));
+      await new Promise(r=>setTimeout(r,700));
     }
-    setEnhancingAll(false);
-  }
+    setIsGenAllThumbs(false); genAllRef.current=false;
+  };
 
-  async function handleEnhance(i, scale=1.5){
-    const slot = slots[i];
-    if(!slot.result) return;
-    setEnhancing(p => ({...p, [i]: true}));
-    try{
-      const enhanced = await enhanceImage(slot.result, scale);
-      upd(i, {result: enhanced});
-      // Save enhanced to gallery
-      const pose = ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
-      await saveToGallery(enhanced, i, pose);
-    }catch(e){ alert("Enhancement failed: "+e.message); }
-    setEnhancing(p => ({...p, [i]: false}));
-  }
+  useEffect(()=>{
+    if(!showGallery||!geminiKey) return;
+    const models=(galleryTab==="male"?MALE_MODELS:FEMALE_MODELS).slice(0,8);
+    models.filter(m=>!thumbs[m.id]&&!thumbLoading[m.id]).forEach(generateThumb);
+  },[showGallery,galleryTab]); // eslint-disable-line
 
-  function randomizeVaried(){
-    const pool=ALL_POSES.filter(p=>!["Standard","Flat Lay","Detail","Back Views"].includes(p.category));
-    setSlots(p=>p.map(s=>{
-      if(!s.varied)return s;
-      const r=pool[Math.floor(Math.random()*pool.length)];
-      return {...s,poseId:r.id};
+  const selectModel = m => { setSelectedModel(m); setShowGallery(false); };
+  const switchGender = g => { setGender(g); if(selectedModel&&selectedModel.id[0]!==g[0]) setSelectedModel(null); };
+  const openGallery = () => { setGalleryTab(gender); setShowGallery(true); };
+
+  // ── Slot pose change ──────────────────────────
+  const changePose = (slotIdx, pose) => {
+    setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,pose,image:null,status:"idle",error:null}:s));
+    setActivePoseSlot(null);
+  };
+
+  const randomizeSlots = (from=4) => {
+    const variable = POSE_POOL.slice(4);
+    const shuffled = [...variable].sort(()=>Math.random()-0.5);
+    setSlots(prev=>prev.map((s,i)=>{
+      if(i<from) return s;
+      const newPose=shuffled[i-from]||s.pose;
+      return {...s,pose:newPose,image:null,status:"idle",error:null};
     }));
-  }
+  };
 
-  async function randomizeModel(){
-    const isFemale = product.gender === "Women's";
-    const pool = isFemale ? MODELS_FEMALE : MODELS_MALE;
-    const m = pool[Math.floor(Math.random()*pool.length)];
-    setProduct(p=>({...p,lockedModel:m}));
-    setModelPreview(null);
+  // ── Generate a single slot ────────────────────
+  const generateSlot = async (slotIdx) => {
+    if (!geminiKey||!refImage||!selectedModel) return;
+    const pose = slots[slotIdx].pose;
+    setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,status:"generating",error:null}:s));
+    try {
+      const img = await callGemini(geminiKey,[
+        {inlineData:{mimeType:refImage.mime, data:refImage.data}},
+        {text:buildSlotPrompt(selectedModel,garmentType,pose)},
+      ],0.2);
+      const raw = `data:${img.mimeType};base64,${img.data}`;
+      const processed = await toOutputSpec(raw, outSize.w, outSize.h, 0.95);
+      setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,status:"done",image:processed,error:null}:s));
+      setTotalGenerated(n=>{
+        const next=n+1;
+        localStorage.setItem("is_total_gen",String(next));
+        return next;
+      });
+    } catch(e) {
+      setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,status:"error",error:e.message}:s));
+    }
+  };
 
-    if(apiKey && apiKey.length > 20){
-      setModelPreviewLoading(true);
-      try{
-        // Use Gemini Flash for portrait — faster and cheaper than Imagen 3
-        const previewPrompt = `Portrait photo of a ${m}. Clean white background. Looking directly at camera, neutral confident expression. Upper body shot cropped at chest. Professional studio photography. High quality, sharp, realistic.`;
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({contents:[{parts:[{text:previewPrompt}]}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
-        });
-        const d = await r.json();
-        if(d.error) throw new Error(d.error.message);
-        const parts = d.candidates?.[0]?.content?.parts||[];
-        for(const part of parts){
-          if(part.inlineData?.data){
-            const thumb = await toThumbnail(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`);
-            setModelPreview(thumb);
-            break;
-          }
-        }
-      }catch(e){
-        notify("Model preview failed: "+e.message, "err");
+  // ── Generate sample (slot 0 only) ─────────────
+  const generateSample = async () => {
+    if (!geminiKey||!refImage||!selectedModel) return;
+    stopRef.current=false;
+    await generateSlot(0);
+  };
+
+  // ── Generate remaining (slots 1-7) ────────────
+  const generateRemaining = async () => {
+    if (!geminiKey||!refImage||!selectedModel) return;
+    setIsGeneratingAll(true);
+    stopRef.current=false;
+    for(let i=1;i<8;i++){
+      if(stopRef.current) break;
+      await generateSlot(i);
+      await new Promise(r=>setTimeout(r,500));
+    }
+    setIsGeneratingAll(false);
+  };
+
+  // ── Generate all 8 ───────────────────────────
+  const generateAll = async () => {
+    if (!geminiKey||!refImage||!selectedModel) return;
+    setIsGeneratingAll(true);
+    stopRef.current=false;
+    for(let i=0;i<8;i++){
+      if(stopRef.current) break;
+      await generateSlot(i);
+      await new Promise(r=>setTimeout(r,500));
+    }
+    setIsGeneratingAll(false);
+  };
+
+  const stopGenerating = () => { stopRef.current=true; setIsGeneratingAll(false); };
+
+  // ── Enhance reference ─────────────────────────
+  const runEnhance = async () => {
+    if (!refImage) return;
+    setIsEnhancing(true); setEnhancedImage(null);
+    try {
+      if (enhanceMode==="ai") {
+        const img = await callGemini(geminiKey,[
+          {inlineData:{mimeType:refImage.mime,data:refImage.data}},
+          {text:`Professional product photographer task: Take this product image and output it with a perfectly pure white (#FFFFFF) background. Keep the product EXACTLY the same — same size, same colors, same logo, same design, same proportions. Just remove any existing background and place on clean pure white. Add clean even studio lighting. Professional product photography quality. High resolution, sharp, no shadows on white background.`},
+        ],0.15);
+        const raw=`data:${img.mimeType};base64,${img.data}`;
+        const out=await toOutputSpec(raw,outSize.w,outSize.h,0.95);
+        setEnhancedImage(out);
+      } else {
+        const out=await canvasEnhance(refImage.preview,outSize.w,outSize.h,0.95);
+        setEnhancedImage(out);
       }
-      setModelPreviewLoading(false);
-    } else {
-      notify("Add your Gemini API key in settings to see model previews","warn");
-    }
-  }
+    } catch(e) {
+      alert("Enhance failed: "+e.message);
+    } finally { setIsEnhancing(false); }
+  };
 
-  function trackImageGenerated(){
-    const newCount = imagesGenerated + 1;
-    setImagesGenerated(newCount);
-    localStorage.setItem("imageStudio_count", String(newCount));
-  }
+  // ── Gallery ───────────────────────────────────
+  const saveSlotToGallery = (slot) => {
+    if (!slot.image) return;
+    const item={id:Date.now(),url:slot.image,model:selectedModel?.name,tag:selectedModel?.tag,garment:garmentType,pose:slot.pose.name,gender,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short"})};
+    const u=[item,...savedGallery].slice(0,80);
+    setSavedGallery(u);
+    try{localStorage.setItem("is_saved_gallery",JSON.stringify(u))}catch{}
+  };
+  const saveAllToGallery = () => {
+    const done=slots.filter(s=>s.image);
+    const items=done.map(s=>({id:Date.now()+s.idx,url:s.image,model:selectedModel?.name,tag:selectedModel?.tag,garment:garmentType,pose:s.pose.name,gender,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short"})}));
+    const u=[...items,...savedGallery].slice(0,80);
+    setSavedGallery(u);
+    try{localStorage.setItem("is_saved_gallery",JSON.stringify(u))}catch{}
+  };
+  const downloadSlot = (slot) => {
+    if (!slot.image) return;
+    const a=document.createElement("a");
+    a.href=slot.image;
+    a.download=`thugfit_${selectedModel?.name||"model"}_${slot.pose.name.replace(/ /g,"_")}.jpg`;
+    a.click();
+  };
+  const downloadAll = () => slots.filter(s=>s.image).forEach((s,i)=>setTimeout(()=>downloadSlot(s),i*200));
+  const deleteFromGallery = id => {
+    const u=savedGallery.filter(i=>i.id!==id);
+    setSavedGallery(u);
+    try{localStorage.setItem("is_saved_gallery",JSON.stringify(u))}catch{}
+  };
 
-  function saveLogo(){
-    if(!refs.logo){alert("Upload a logo first");return;}
-    const name=newLogoName.trim()||`Logo ${logoLibrary.length+1}`;
-    const updated=[...logoLibrary,{id:Date.now(),name,dataUrl:refs.logo}];
-    setLogoLibrary(updated);
-    localStorage.setItem("imageStudio_logos",JSON.stringify(updated));
-    setNewLogoName("");
-    alert(`Logo "${name}" saved to library!`);
-  }
+  // ── Computed ──────────────────────────────────
+  const galleryModels = galleryTab==="male"?MALE_MODELS:FEMALE_MODELS;
+  const missingThumbs = galleryModels.filter(m=>!thumbs[m.id]).length;
+  const doneSlots = slots.filter(s=>s.status==="done").length;
+  const anyGenerating = slots.some(s=>s.status==="generating");
+  const slot0done = slots[0].status==="done";
+  const canGenerate = !!(geminiKey&&refImage&&selectedModel);
+  const estimatedCost = (totalGenerated*0.04).toFixed(2);
 
-  function deleteLogo(id){
-    const updated=logoLibrary.filter(l=>l.id!==id);
-    setLogoLibrary(updated);
-    localStorage.setItem("imageStudio_logos",JSON.stringify(updated));
-  }
+  // ── Slot status helpers ────────────────────────
+  const slotBg = s => s.status==="done"?"#0a1a0a":s.status==="error"?"#1a0a0a":s.status==="generating"?"#0a0a1a":"#0a0a12";
+  const slotBorder = s => s.status==="done"?"#16a34a30":s.status==="error"?"#ef444430":s.status==="generating"?"#7c3aed60":"#1a1a2e";
 
-  function selectLogo(logo){
-    setRefs(p=>({...p,logo:logo.dataUrl}));
-    setShowLogoLibrary(false);
-  }
-
-  async function analyzePhoto(){
-    const photoToAnalyze=refs.front||refs.back;
-    if(!photoToAnalyze){alert("Upload a Front or Back reference photo first");return;}
-    setAnalyzingRef(true);
-    try{
-      const base64=photoToAnalyze.split(",")[1];
-      const mime=photoToAnalyze.startsWith("data:image/png")?"image/png":"image/jpeg";
-      const result=await analyzeProductPhoto(base64,mime);
-      setProduct(p=>({
-        ...p,
-        designNotes: result.designNotes||p.designNotes,
-        color: result.color||p.color
-      }));
-    }catch(e){alert("Analysis failed: "+e.message);}
-    setAnalyzingRef(false);
-  }
-
-  async function handleRefUpload(zone,file){
-    const reader=new FileReader();
-    reader.onload=async(e)=>{
-      const dataUrl=e.target.result;
-      setRefs(p=>({...p,[zone]:dataUrl}));
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function getRefData(){
-    const refUrl = refs.front || refs.back;
-    if(!refUrl) return {base64:null, mime:null};
-    const base64 = refUrl.split(",")[1];
-    const mime = refUrl.startsWith("data:image/png") ? "image/png" : "image/jpeg";
-    return {base64, mime};
-  }
-
-  function getLogoData(){
-    if(!refs.logo) return {base64:null, mime:null};
-    return {
-      base64: refs.logo.split(",")[1],
-      mime: refs.logo.startsWith("data:image/png") ? "image/png" : "image/jpeg"
-    };
-  }
-
-  // Lock model for consistency across all 8 images — auto-pick if not set
-  function ensureLockedModel() {
-    if(product.lockedModel) return product.lockedModel;
-    const isFemale = product.gender === "Women's";
-    const pool = isFemale ? MODELS_FEMALE : MODELS_MALE;
-    const m = pool[Math.floor(Math.random() * pool.length)];
-    setProduct(p => ({...p, lockedModel: m}));
-    return m;
-  }
-
-  async function buildPromptWithLogo(product, pose, feedback, lockedModel) {
-    const productWithModel = {...product, lockedModel};
-    return buildPrompt(productWithModel, pose, feedback);
-  }
-
-  async function generateSample(){
-    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
-    if(!product.name.trim()){alert("Enter a product name first");return;}
-    stopRef.current=false;
-    setSampleDone(false);
-    setSampleFeedback("");
-    setGenerating(true);
-    // Lock model NOW — same model will be used for all 8 images
-    const sessionModel = ensureLockedModel();
-    const sessionProduct = {...product, lockedModel: sessionModel};
-    setSlots(p=>p.map((s,i)=>i===0?{...s,status:"generating",result:null,error:null}:{...s,status:"idle",result:null,error:null}));
-    const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
-    const {base64,mime}=getRefData();
-    const {base64:logoB64,mime:logoMime}=getLogoData();
-    try{
-      const isWPs=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
-      const res=await generateImage(buildPrompt(sessionProduct,pose,"",!!(base64)),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime,isWPs);
-      upd(0,{status:"done",result:processed});
-      trackImageGenerated();
-      await saveToGallery(processed,0,pose);
-      setSampleDone(true);
-    }catch(e){upd(0,{status:"error",error:e.message});}
-    setGenerating(false);
-  }
-
-  async function regenSampleWithFeedback(){
-    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
-    setSampleDone(false);
-    setGenerating(true);
-    upd(0,{status:"generating",result:null,error:null});
-    const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
-    const {base64,mime}=getRefData();
-    const {base64:logoB64,mime:logoMime}=getLogoData();
-    try{
-      const isWP2=product.color.toLowerCase().includes('white')||product.color.toLowerCase().includes('cream')||product.color.toLowerCase().includes('ivory');
-      const res=await generateImage(buildPrompt(product,pose,sampleFeedback,!!(base64)),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime,isWP2);
-      upd(0,{status:"done",result:processed});
-      trackImageGenerated();
-      await saveToGallery(processed,0,pose);
-      setSampleDone(true);
-    }catch(e){upd(0,{status:"error",error:e.message});}
-    setGenerating(false);
-  }
-
-  async function generateAll(){
-    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
-    if(!product.name.trim()){alert("Enter a product name first");return;}
-    stopRef.current=false;
-    setGenerating(true);
-    // Use same locked model for all remaining images
-    const sessionModel = product.lockedModel || ensureLockedModel();
-    const sessionProduct = {...product, lockedModel: sessionModel};
-    const {base64,mime}=getRefData();
-    const {base64:logoB64,mime:logoMime}=getLogoData();
-    setSlots(p=>p.map((s,i)=>i===0?s:{...s,status:"pending",result:null,error:null}));
-    for(let i=1;i<slots.length;i++){
-      if(stopRef.current){upd(i,{status:"idle"});continue;}
-      upd(i,{status:"generating"});
-      const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
-      try{
-        const isWP=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
-        const res=await generateImage(buildPrompt(sessionProduct,pose,"",!!(base64)),apiKey,base64,mime,logoB64,logoMime);
-        const processed=await processImage(res.data,res.mime,isWP);
-        upd(i,{status:"done",result:processed});
-        trackImageGenerated();
-        await saveToGallery(processed,i,pose);
-      }catch(e){upd(i,{status:"error",error:e.message});}
-    }
-    setGenerating(false);
-  }
-
-  async function regenSlot(i){
-    if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
-    setSlotFeedback({index:i,text:""});
-  }
-
-  async function doRegenSlot(i, feedback=""){
-    upd(i,{status:"generating",error:null});
-    const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
-    const {base64,mime}=getRefData();
-    const {base64:logoB64,mime:logoMime}=getLogoData();
-    try{
-      const res=await generateImage(buildPrompt(product,pose,feedback,!!(base64)),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime,product.color.toLowerCase().includes("white")||product.color.toLowerCase().includes("cream")||product.color.toLowerCase().includes("ivory"));
-      upd(i,{status:"done",result:processed});
-      trackImageGenerated();
-      await saveToGallery(processed,i,pose);
-    }catch(e){upd(i,{status:"error",error:e.message});}
-    setSlotFeedback({index:-1,text:""});
-  }
-
-  function downloadAll(){
-    const done=slots.filter(s=>s.status==="done");
-    if(!done.length)return;
-    const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-    s.onload=async()=>{
-      const zip=new window.JSZip();
-      slots.forEach((sl,i)=>{if(sl.status==="done")zip.file(`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`,sl.result.split(",")[1],{base64:true});});
-      const blob=await zip.generateAsync({type:"blob"});
-      const u=URL.createObjectURL(blob);
-      const a=document.createElement("a");a.href=u;a.download=`${product.name.replace(/\s+/g,"_")}_images.zip`;a.click();URL.revokeObjectURL(u);
-    };
-    document.head.appendChild(s);
-  }
-
-  const filteredPoses=ALL_POSES.filter(p=>(poseCat==="All"||p.category===poseCat)&&(!poseSearch||p.name.toLowerCase().includes(poseSearch.toLowerCase())||p.desc.toLowerCase().includes(poseSearch.toLowerCase())));
-
-  const inp={width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:12,fontFamily:"inherit",boxSizing:"border-box"};
-  const btn=(bg,outline=false)=>({padding:"8px 16px",borderRadius:7,border:outline?`1px solid ${bg}`:"none",background:outline?"transparent":bg,color:outline?bg:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",transition:"opacity 0.15s"});
-
+  // ═══════════════════════════════════════════════
+  //  RENDER
+  // ═══════════════════════════════════════════════
   return (
-    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Inter',sans-serif",fontSize:13}}>
-      {/* Header */}
-      <div style={{background:C.surf,borderBottom:`1px solid ${C.border}`,padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:32,height:32,borderRadius:8,background:C.purple,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎨</div>
+    <div style={{minHeight:"100vh",background:"#0d0d16",color:"#e2e8f0",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontSize:14}}>
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        ::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-track{background:#0d0d16;} ::-webkit-scrollbar-thumb{background:#2a2a40;border-radius:2px;}
+        select option{background:#0d0d16;color:#e2e8f0;}
+        input::placeholder{color:#2a2a40;}
+        .slot-card:hover .slot-actions{opacity:1!important;}
+        .gcard:hover .gdel{opacity:1!important;}
+        .model-card:hover{border-color:#7c3aed80!important;transform:translateY(-2px);box-shadow:0 6px 20px #7c3aed15;}
+        .pose-pick:hover{background:#1a1a2e!important;border-color:#3a3a5c!important;}
+        .btn-hover:hover{opacity:.85;}
+      `}</style>
+
+      {/* ╔══ HEADER ══╗ */}
+      <header style={{background:"#09090f",borderBottom:"1px solid #1a1a2e",padding:"0 24px",display:"flex",alignItems:"center",height:54,gap:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginRight:8}}>
+          <div style={{width:32,height:32,background:"linear-gradient(135deg,#7c3aed,#2563eb)",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📸</div>
           <div>
-            <div style={{fontWeight:700,fontSize:15}}>Image Studio</div>
-            <div style={{fontSize:11,color:C.muted}}>Actiwear · SM</div>
+            <div style={{fontWeight:800,fontSize:15,letterSpacing:"-0.3px",color:"#f1f5f9"}}>Image Studio</div>
+            <div style={{fontSize:10,color:"#3a3a5c",marginTop:-1}}>THUGFIT · Product on Model</div>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <button onClick={()=>setShowGallery(true)} style={{...btn(C.border,true),fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
-            🖼 Gallery ({gallery.length})
+
+        {/* Mode toggle */}
+        <div style={{display:"flex",background:"#13131f",border:"1px solid #1a1a2e",borderRadius:8,padding:3,gap:2}}>
+          {[["model","🤖 Product on Model"],["enhance","⭐ Enhance Reference"]].map(([m,label])=>(
+            <button key={m} onClick={()=>setMode(m)} style={{padding:"5px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:mode===m?"linear-gradient(135deg,#7c3aed,#2563eb)":"none",color:mode===m?"#fff":"#4a4a6a",transition:"all .15s"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+          {savedGallery.length>0&&<div style={{fontSize:12,color:"#4a4a6a",background:"#13131f",border:"1px solid #1a1a2e",borderRadius:6,padding:"4px 10px",cursor:"pointer"}} onClick={()=>document.getElementById("gallery-section")?.scrollIntoView({behavior:"smooth"})}>🖼 Gallery ({savedGallery.length})</div>}
+          <div style={{fontSize:12,color:"#4a4a6a",background:"#13131f",border:"1px solid #1a1a2e",borderRadius:6,padding:"4px 10px"}}>💰 {totalGenerated} images · ~${estimatedCost}</div>
+          <button onClick={openSettings} style={{background:"none",border:"1px solid #1a1a2e",color:"#64748b",padding:"5px 12px",borderRadius:7,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+            ⚙ Settings{!geminiKey&&<span style={{background:"#ef444430",color:"#f87171",padding:"1px 5px",borderRadius:3,fontSize:10}}>NO KEY</span>}
           </button>
-          <div style={{fontSize:11,color:C.muted,background:C.card,padding:"5px 12px",borderRadius:20,border:`1px solid ${C.border}`}}>
-            💰 {imagesGenerated} images · ~${(imagesGenerated*0.04).toFixed(3)} spent
-          </div>
-          <button onClick={()=>setShowKeyModal(true)} style={{...btn(apiKey.length>20?C.teal:C.purple),fontSize:11,display:"flex",alignItems:"center",gap:6}}>
-            🔑 {apiKey.length>20?"✓ API Key Set":"Add API Key"}
-          </button>
         </div>
-      </div>
+      </header>
 
-      <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:0,height:"calc(100vh - 57px)",overflow:"hidden"}}>
-        {/* Left sidebar */}
-        <div style={{background:C.surf,borderRight:`1px solid ${C.border}`,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
-          {/* Product details */}
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-              <span style={{fontSize:14}}>🎯</span>
-              <span style={{fontWeight:600,fontSize:13}}>Product details</span>
+      {/* ╔══ MAIN BODY ══╗ */}
+      <div style={{display:"grid",gridTemplateColumns:"340px 1fr",minHeight:"calc(100vh - 54px)"}}>
+
+        {/* ── LEFT PANEL ── */}
+        <div style={{borderRight:"1px solid #1a1a2e",background:"#09090f",padding:20,display:"flex",flexDirection:"column",gap:18,overflowY:"auto"}}>
+
+          {/* Ref image */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>① Reference Product Photo</div>
+            <div
+              style={{border:"2px dashed",borderColor:refImage?"#7c3aed60":"#1a1a2e",borderRadius:10,padding:refImage?0:22,textAlign:"center",cursor:"pointer",background:"#0d0d16",overflow:"hidden"}}
+              onClick={()=>fileRef.current?.click()}
+              onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}}
+              onDragOver={e=>e.preventDefault()}
+            >
+              {refImage
+                ?<img src={refImage.preview} style={{width:"100%",maxHeight:200,objectFit:"contain",display:"block",background:"#0a0a14",borderRadius:9}} alt="ref"/>
+                :<><div style={{fontSize:32,marginBottom:6}}>📷</div><div style={{color:"#2a2a40",fontSize:12}}>Drop product photo here or click</div><div style={{color:"#1a1a2e",fontSize:11,marginTop:3}}>Any background OK</div></>
+              }
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Product name *</div>
-                <input style={inp} placeholder="e.g. Pro Fit Tee Black" value={product.name} onChange={e=>setProduct(p=>({...p,name:e.target.value}))} />
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Type</div>
-                  <select style={inp} value={product.type} onChange={e=>setProduct(p=>({...p,type:e.target.value}))}>
-                    {PRODUCT_TYPES.map(t=><option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Gender</div>
-                  <select style={inp} value={product.gender} onChange={e=>setProduct(p=>({...p,gender:e.target.value}))}>
-                    {GENDERS.map(g=><option key={g}>{g}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Color *</div>
-                  <input style={inp} placeholder="e.g. Jet Black" value={product.color} onChange={e=>setProduct(p=>({...p,color:e.target.value}))} />
-                </div>
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Brand</div>
-                  <input style={inp} value={product.brand} onChange={e=>setProduct(p=>({...p,brand:e.target.value}))} />
-                </div>
-              </div>
-              <div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <div style={{fontSize:11,color:C.muted}}>
-                    Design notes
-                    {analyzingRef&&<span style={{color:C.amber}}> · AI analyzing...</span>}
-                  </div>
-                  <button onClick={analyzePhoto} disabled={analyzingRef||(!refs.front&&!refs.back)}
-                    style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${C.purple}`,background:analyzingRef?`${C.purple}20`:"transparent",color:C.purple,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit",opacity:(!refs.front&&!refs.back)?0.4:1}}>
-                    {analyzingRef?"⏳ Analyzing...":"🔍 Analyze Photo"}
-                  </button>
-                </div>
-                <textarea style={{...inp,resize:"vertical",lineHeight:1.5,minHeight:70}} rows={3}
-                  placeholder="e.g. Reflective stripe on left sleeve, mesh back panels... (or upload Front/Back photo and click Analyze)"
-                  value={product.designNotes} onChange={e=>setProduct(p=>({...p,designNotes:e.target.value}))} />
-                <div style={{fontSize:10,color:C.muted,marginTop:3}}>Upload Front or Back photo → click 🔍 Analyze to auto-fill</div>
-              </div>
-            </div>
+            {refImage&&<button onClick={()=>{setRefImage(null);setSlots(prev=>prev.map(s=>({...s,image:null,status:"idle",error:null})));setEnhancedImage(null);}} style={{marginTop:6,width:"100%",background:"none",border:"1px solid #1a1a2e",color:"#3a3a5c",padding:"6px 0",borderRadius:7,cursor:"pointer",fontSize:11}}>✕ Remove image</button>}
+            <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
           </div>
 
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:14}}>👤</span>
-                <span style={{fontWeight:600,fontSize:13}}>Model</span>
-              </div>
-              <button onClick={randomizeModel} disabled={modelPreviewLoading} style={{...btn(C.border,true),padding:"4px 10px",fontSize:11,color:C.muted}}>
-                {modelPreviewLoading?"⏳ Previewing...":"↺ Randomize"}
-              </button>
-            </div>
-
-            {/* Model preview */}
-            {modelPreviewLoading && (
-              <div style={{padding:"10px",textAlign:"center",color:C.muted,fontSize:11,marginBottom:8}}>
-                Generating model preview...
-              </div>
-            )}
-            {modelPreview && !modelPreviewLoading && (
-              <div style={{marginBottom:8,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"3/4",maxHeight:160}}>
-                <img src={modelPreview} alt="Model preview" style={{width:"100%",height:"100%",objectFit:"cover"}} />
-              </div>
-            )}
-
-            {product.lockedModel
-              ? <div style={{fontSize:11,color:C.teal,background:`${C.teal}15`,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.teal}30`,lineHeight:1.5,marginBottom:6}}>{product.lockedModel}</div>
-              : <div style={{fontSize:11,color:C.muted,lineHeight:1.5,marginBottom:6}}>Click Randomize to pick a model and see a preview. Same model used for all 8 images.</div>}
-
-            {/* Custom model input */}
-            <div style={{marginTop:6}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Or paste your own model description:</div>
-              <textarea
-                placeholder="e.g. Athletic European male model, 6ft 2in, lean muscular physique, dark short hair, olive skin..."
-                rows={2}
-                style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 9px",color:C.text,fontSize:11,resize:"vertical",fontFamily:"inherit",lineHeight:1.5,boxSizing:"border-box"}}
-                onBlur={e=>{if(e.target.value.trim())setProduct(p=>({...p,lockedModel:e.target.value.trim()}));}}
-                defaultValue=""
-              />
-            </div>
-
-            {product.lockedModel&&<button onClick={()=>{setProduct(p=>({...p,lockedModel:""}));setModelPreview(null);}} style={{...btn(C.border,true),padding:"3px 8px",fontSize:10,color:C.muted,marginTop:4}}>✕ Clear</button>}
+          {/* Garment */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>② Garment Type</div>
+            <select value={garmentType} onChange={e=>setGarmentType(e.target.value)} style={{width:"100%",background:"#0d0d16",border:"1px solid #1a1a2e",color:"#e2e8f0",padding:"10px 12px",borderRadius:8,fontSize:13,outline:"none"}}>
+              {GARMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
 
-          {/* Reference photos */}
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <span style={{fontSize:14}}>📸</span>
-              <span style={{fontWeight:600,fontSize:13}}>Reference photos</span>
-            </div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:10}}>Upload actual product photos. Use 🔍 Analyze to extract design notes.</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-              {["front","back","side"].map(zone=>(
-                <label key={zone} style={{cursor:"pointer"}}>
-                  <div style={{border:`1px dashed ${refs[zone]?C.teal:C.border}`,borderRadius:7,overflow:"hidden",background:refs[zone]?`${C.teal}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,transition:"all 0.2s",position:"relative"}}>
-                    {refs[zone]
-                      ? <><img src={refs[zone]} alt={zone} style={{width:"100%",height:"100%",objectFit:"cover"}} />
-                          <button onClick={e=>{e.preventDefault();e.stopPropagation();setRefs(p=>({...p,[zone]:null}));}} style={{position:"absolute",top:4,right:4,width:18,height:18,borderRadius:"50%",border:"none",background:"rgba(0,0,0,0.6)",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                        </>
-                      : <><span style={{fontSize:18}}>📷</span><span style={{fontSize:10,color:C.muted,textTransform:"capitalize"}}>{zone}</span></>}
-                  </div>
-                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleRefUpload(zone,e.target.files[0])} />
-                </label>
-              ))}
-              {/* Logo slot with library */}
-              <div>
-                <div style={{border:`1px dashed ${refs.logo?C.amber:C.border}`,borderRadius:7,overflow:"hidden",background:refs.logo?`${C.amber}08`:"transparent",aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4,position:"relative"}}>
-                  {refs.logo
-                    ? <><img src={refs.logo} alt="logo" style={{width:"100%",height:"100%",objectFit:"contain",padding:4}} />
-                        <button onClick={()=>setRefs(p=>({...p,logo:null}))} style={{position:"absolute",top:4,right:4,width:18,height:18,borderRadius:"50%",border:"none",background:"rgba(0,0,0,0.6)",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-                      </>
-                    : <><span style={{fontSize:18}}>🏷</span><span style={{fontSize:10,color:C.muted}}>Logo</span></>}
-                </div>
-                <div style={{display:"flex",gap:4,marginTop:5}}>
-                  <label style={{flex:1,cursor:"pointer"}}>
-                    <div style={{padding:"4px 0",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:10,fontWeight:600,textAlign:"center"}}>Upload</div>
-                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleRefUpload("logo",e.target.files[0])} />
-                  </label>
-                  <button onClick={()=>setShowLogoLibrary(true)} style={{flex:1,padding:"4px 0",borderRadius:5,border:`1px solid ${C.amber}`,background:"transparent",color:C.amber,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit"}}>
-                    Library ({logoLibrary.length})
-                  </button>
-                </div>
-                {refs.logo&&(
-                  <button onClick={saveLogo} style={{width:"100%",padding:"4px 0",borderRadius:5,border:`1px solid ${C.teal}`,background:"transparent",color:C.teal,cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit",marginTop:4}}>
-                    💾 Save to Library
-                  </button>
-                )}
-              </div>
-            </div>
-            {refs.logo&&(
-              <div style={{marginBottom:6}}>
-                <input style={{...inp,fontSize:11}} placeholder="Logo name (for library)..." value={newLogoName} onChange={e=>setNewLogoName(e.target.value)} />
-              </div>
-            )}
-          </div>
-
-          {/* Output specs */}
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {[["Output size","1948 × 2656 px"],["Format","JPEG 95% quality"],["Background","Pure white #FFFFFF"],["Images per product","8"],["AI model","Imagen 3 → Gemini Flash (fallback)"]].map(([k,v])=>(
-                <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:11,color:C.muted}}>{k}</span>
-                  <span style={{fontSize:11,fontWeight:500}}>{v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right main area */}
-        <div style={{overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16}}>
-
-          {/* MODE SELECTOR — top of screen, always visible */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <div onClick={()=>setMode("generate")} style={{
-              padding:"14px 16px",borderRadius:10,cursor:"pointer",transition:"all 0.2s",
-              border:`2px solid ${mode==="generate"?C.purple:C.border}`,
-              background:mode==="generate"?`${C.purple}20`:C.card,
-            }}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:36,height:36,borderRadius:8,background:mode==="generate"?C.purple:`${C.purple}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>🤖</div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:mode==="generate"?C.purple:C.text}}>Generate New</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>AI creates a new image — approximates product</div>
-                </div>
-                {mode==="generate"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.purple}}/>}
-              </div>
-            </div>
-            <div onClick={()=>setMode("enhance")} style={{
-              padding:"14px 16px",borderRadius:10,cursor:"pointer",transition:"all 0.2s",
-              border:`2px solid ${mode==="enhance"?C.teal:C.border}`,
-              background:mode==="enhance"?`${C.teal}20`:C.card,
-            }}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:36,height:36,borderRadius:8,background:mode==="enhance"?C.teal:`${C.teal}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>✨</div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text}}>Enhance Reference ⭐</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Your exact product photo — white background, sharpened, upscaled</div>
-                </div>
-                {mode==="enhance"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.teal}}/>}
-              </div>
-            </div>
-          </div>
-
-          {/* Pose configuration */}
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:14}}>🎭</span>
-                <span style={{fontWeight:600}}>Pose configuration</span>
-                <span style={{fontSize:11,color:C.muted}}>· click any slot to change</span>
-              </div>
-              <button onClick={randomizeVaried} style={{...btn(C.border,true),fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
-                ↺ Randomize 6-8
-              </button>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-              {slots.map((slot,i)=>{
-                const pose=ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
-                const cc=CAT_COLORS[pose.category]||C.purple;
-                return(
-                  <div key={i} onClick={()=>setShowPosePicker(i)} style={{background:C.surf,border:`1px solid ${C.border}`,borderRadius:8,padding:12,cursor:"pointer",transition:"border-color 0.15s"}}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor=cc} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <span style={{fontSize:10,color:C.muted}}>#{i+1}</span>
-                      <span style={{fontSize:10,color:cc,background:`${cc}20`,padding:"1px 6px",borderRadius:10}}>{pose.category}</span>
-                    </div>
-                    <div style={{fontWeight:600,fontSize:12,marginBottom:4}}>{pose.name}</div>
-                    <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{pose.desc.slice(0,70)}...</div>
-                    {slot.varied&&<div style={{marginTop:6,fontSize:10,color:C.amber}}>● varied slot</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Generate section */}
-          <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:11,color:C.muted}}>
-                {mode==="generate"
-                  ? apiKey.length>20?"1 key configured · Imagen 3 active":"Add API key to enable generation"
-                  : "No API key needed · processes your reference photos"}
-              </div>
-              {doneCount>0&&<button onClick={downloadAll} style={btn(C.teal)}>⬇ ZIP ({doneCount})</button>}
-            </div>
-
-            {/* ENHANCE MODE */}
-            {mode==="enhance"&&(
-              <div>
-                {(!refs.front&&!refs.back&&!refs.side) ? (
-                  <div style={{padding:"14px",background:`${C.amber}10`,border:`1px solid ${C.amber}30`,borderRadius:8,fontSize:12,color:C.amber,marginBottom:10}}>
-                    ⚠ Upload at least one reference photo first (Front, Back or Side)
-                  </div>
-                ):(
-                  <div style={{padding:"12px",background:`${C.teal}10`,border:`1px solid ${C.teal}30`,borderRadius:8,fontSize:12,color:C.teal,marginBottom:10}}>
-                    ✓ {[refs.front&&"Front",refs.back&&"Back",refs.side&&"Side"].filter(Boolean).join(", ")} photo{[refs.front,refs.back,refs.side].filter(Boolean).length>1?"s":""} ready to enhance
-                  </div>
-                )}
-                <button onClick={enhancingAll?()=>{}:enhanceReference} disabled={enhancingAll||(!refs.front&&!refs.back&&!refs.side)}
-                  style={{...btn(enhancingAll?C.border:C.teal),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
-                  {enhancingAll?`⏳ Enhancing... ${doneCount}/8`:"✨ Enhance Reference Photos"}
-                </button>
-                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-                  What this does: removes background → replaces with pure white → sharpens fabric details → upscales to 1948×2656px → exports at maximum quality. No new model generated.
-                </div>
-              </div>
-            )}
-
-            {/* GENERATE MODE */}
-            {mode==="generate"&&(
-              <div>
-                {/* Step 1 — Sample */}
-                {!sampleDone&&!slots[0].result&&(
-                  <button onClick={generating?()=>{stopRef.current=true;setGenerating(false);}:generateSample}
-                    style={{...btn(generating?C.danger:C.purple),width:"100%",fontSize:13,fontWeight:700,padding:"11px",marginBottom:8}}>
-                    {generating?"■ Stop":"⚡ Generate Sample (1 of 8) →"}
-                  </button>
-                )}
-
-                {/* Sample done — feedback + approve */}
-                {(sampleDone||slots[0].result)&&!generating&&(
-                  <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:8,padding:12,marginBottom:10}}>
-                    <div style={{fontSize:12,fontWeight:600,color:C.purple,marginBottom:8}}>✓ Sample ready — review slot #1 (Hero Front)</div>
-                    <textarea value={sampleFeedback} onChange={e=>setSampleFeedback(e.target.value)}
-                      placeholder="Optional: describe changes e.g. 'make model taller, darker background, show logo more prominently'"
-                      style={{...{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:6,padding:"7px 10px",color:C.text,fontSize:11,fontFamily:"inherit",boxSizing:"border-box"},resize:"vertical",lineHeight:1.5,minHeight:50}}
-                      rows={2} />
-                    <div style={{display:"flex",gap:8,marginTop:8}}>
-                      {sampleFeedback.trim()&&(
-                        <button onClick={regenSampleWithFeedback} style={{...btn(C.amber),flex:1,fontSize:12}}>↺ Redo with Changes</button>
-                      )}
-                      <button onClick={generateAll} style={{...btn(C.teal),flex:2,fontSize:12,fontWeight:700}}>✓ Looks Good — Generate All 8</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Generating remaining */}
-                {generating&&sampleDone&&(
-                  <button onClick={()=>{stopRef.current=true;setGenerating(false);}} style={{...btn(C.danger),width:"100%",fontSize:12,marginBottom:8}}>
-                    ■ Stop Generation
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Progress bar — both modes */}
-            {slots.some(s=>s.status!=="idle")&&(
-              <div style={{marginTop:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{fontSize:11,color:C.muted}}>Progress</span>
-                  <span style={{fontSize:11}}>{doneCount}/8 done</span>
-                </div>
-                <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden",marginBottom:6}}>
-                  <div style={{height:"100%",width:`${progress}%`,background:mode==="enhance"?C.teal:C.purple,borderRadius:3,transition:"width 0.4s"}} />
-                </div>
-                <div style={{display:"flex",gap:3}}>
-                  {slots.map((s,i)=>(
-                    <div key={i} style={{flex:1,height:4,borderRadius:2,background:s.status==="done"?C.teal:s.status==="generating"?C.amber:s.status==="error"?C.danger:C.border,transition:"background 0.3s"}} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Image preview grid */}
-          {slots.some(s=>s.status!=="idle")&&(
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-              {slots.map((slot,i)=>{
-                const pose=ALL_POSES.find(p=>p.id===slot.poseId)||ALL_POSES[0];
-                const cc=CAT_COLORS[pose.category]||C.purple;
-                return(
-                  <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
-                    <div style={{aspectRatio:"3/4",background:C.surf,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      {slot.status==="done"&&slot.result?(
-                        <div style={{position:"relative",width:"100%",height:"100%"}}>
-                          <img src={slot.result} alt={pose.name} style={{width:"100%",height:"100%",objectFit:"cover"}} />
-                          {enhancing[i]&&(
-                            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}>
-                              <div style={{fontSize:20,animation:"spin 1s linear infinite"}}>✨</div>
-                              <div style={{fontSize:11,color:"#fff"}}>Enhancing...</div>
-                            </div>
-                          )}
-                          {!enhancing[i]&&(
-                            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",opacity:0,display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"opacity 0.2s",flexWrap:"wrap",padding:8}}
-                              onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
-                              <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"5px 8px",fontSize:10}}>↻ Redo</button>
-                              <button onClick={()=>handleEnhance(i,1.5)} style={{...btn("#f59e0b"),padding:"5px 8px",fontSize:10}}>✨ 1.5×</button>
-                              <button onClick={()=>handleEnhance(i,2)} style={{...btn("#a855f7"),padding:"5px 8px",fontSize:10}}>✨ 2×</button>
-                              <button onClick={()=>{const a=document.createElement("a");a.href=slot.result;a.download=`${product.name.replace(/\s+/g,"_")}_${i+1}.jpg`;a.click();}} style={{...btn(C.teal),padding:"5px 8px",fontSize:10}}>⬇</button>
-                            </div>
-                          )}
-                        </div>
-                      ):slot.status==="generating"?(
-                        <div style={{textAlign:"center",color:C.amber}}>
-                          <div style={{fontSize:20,marginBottom:6,animation:"spin 1s linear infinite"}}>⏳</div>
-                          <div style={{fontSize:11}}>Generating...</div>
-                        </div>
-                      ):slot.status==="error"?(
-                        <div style={{textAlign:"center",padding:10}}>
-                          <div style={{fontSize:18,marginBottom:6}}>❌</div>
-                          <div style={{fontSize:10,color:C.danger,marginBottom:6,lineHeight:1.4}}>{slot.error?.slice(0,80)}</div>
-                          <button onClick={()=>regenSlot(i)} style={{...btn(C.purple),padding:"4px 8px",fontSize:10}}>Retry</button>
-                        </div>
-                      ):slot.status==="pending"?(
-                        <div style={{textAlign:"center",color:C.muted}}>
-                          <div style={{fontSize:18,marginBottom:4}}>⏸</div>
-                          <div style={{fontSize:10}}>Queued</div>
-                        </div>
-                      ):null}
-                    </div>
-                    <div style={{padding:"8px 10px",borderTop:`1px solid ${C.border}`}}>
-                      <div style={{fontSize:11,fontWeight:600,marginBottom:2}}>{pose.name}</div>
-                      {product.name&&<div style={{fontSize:10,color:C.muted}}>{product.name.replace(/\s+/g,"_")}_{i+1}.jpg</div>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Per-slot feedback panel — outside grid conditional */}
-          {slotFeedback.index>=0&&slots[slotFeedback.index]&&(
-            <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}30`,borderRadius:10,padding:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{fontSize:13,fontWeight:600,color:C.purple}}>
-                  ↻ Redo Slot #{slotFeedback.index+1} — {ALL_POSES.find(p=>p.id===slots[slotFeedback.index].poseId)?.name}
-                </div>
-                <button onClick={()=>setSlotFeedback({index:-1,text:""})} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button>
-              </div>
-              <textarea
-                value={slotFeedback.text}
-                onChange={e=>setSlotFeedback(p=>({...p,text:e.target.value}))}
-                placeholder="Describe changes e.g. 'make model taller', 'show logo more clearly', 'wider shoulders'... or leave blank to just regenerate"
-                rows={2}
-                style={{width:"100%",background:C.surf,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.5,boxSizing:"border-box",marginBottom:10}}
-              />
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>doRegenSlot(slotFeedback.index,"")} style={{...btn(C.border,true),flex:1,fontSize:12,color:C.muted}}>
-                  ↻ Regenerate (no changes)
-                </button>
-                <button onClick={()=>doRegenSlot(slotFeedback.index,slotFeedback.text)} style={{...btn(C.purple),flex:2,fontSize:12,fontWeight:700}}>
-                  ✓ {slotFeedback.text.trim()?"Apply Changes & Regenerate":"Regenerate"}
-                </button>
-              </div>
-            </div>
-          )}
-          )}
-        </div>
-      </div>
-
-      {/* API Key Modal */}
-      {showKeyModal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
-          onClick={e=>e.target===e.currentTarget&&setShowKeyModal(false)}>
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:440,maxWidth:"90vw"}}>
-            <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Gemini API Key</div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:20,lineHeight:1.6}}>
-              Uses Imagen 3 (billing enabled — ~$0.03/image, no daily limit).<br/>
-              Get key → <span style={{color:C.purple}}>aistudio.google.com</span> → API Keys → Create API key
-            </div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Your Gemini API Key</div>
-            <input type="password" placeholder="AIza..." value={apiKey} onChange={e=>setApiKey(e.target.value)}
-              style={{...inp,marginBottom:14,padding:"10px 12px",fontSize:13}} />
-            <div style={{padding:"10px 14px",background:apiKey.length>20?`${C.teal}15`:`${C.amber}15`,border:`1px solid ${apiKey.length>20?C.teal:C.amber}40`,borderRadius:8,fontSize:12,color:apiKey.length>20?C.teal:C.amber,marginBottom:16}}>
-              {apiKey.length>20?"✓ Key entered — reference photo analysis + image generation ready":"⚠ Enter your API key to enable all features"}
-            </div>
-            <button onClick={()=>{localStorage.setItem("imageStudio_apiKey",apiKey);setShowKeyModal(false);}} style={{...btn(C.purple),width:"100%",padding:"10px"}}>Save & Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* Pose Picker Modal */}
-      {showPosePicker!==null&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
-          onClick={e=>e.target===e.currentTarget&&setShowPosePicker(null)}>
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,width:700,maxWidth:"90vw",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
-            <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Select Pose — Slot {showPosePicker+1}</div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:14}}>50 poses across 10 categories</div>
-            <input placeholder="Search poses..." value={poseSearch} onChange={e=>setPoseSearch(e.target.value)}
-              style={{...inp,marginBottom:12,padding:"8px 12px"}} />
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
-              {["All",...Object.keys(POSES)].map(cat=>(
-                <button key={cat} onClick={()=>setPoseCat(cat)} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit",background:poseCat===cat?(CAT_COLORS[cat]||C.purple):C.surf,color:poseCat===cat?"#fff":C.muted}}>
-                  {cat}
+          {/* Gender (model mode only) */}
+          {mode==="model"&&<div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>③ Model Gender</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {[["female","♀ Female"],["male","♂ Male"]].map(([g,label])=>(
+                <button key={g} onClick={()=>switchGender(g)} style={{padding:"10px 0",borderRadius:8,border:"1px solid",fontSize:13,fontWeight:700,cursor:"pointer",background:gender===g?"#7c3aed18":"#0d0d16",borderColor:gender===g?"#7c3aed":"#1a1a2e",color:gender===g?"#a78bfa":"#3a3a5c"}}>
+                  {label}
                 </button>
               ))}
             </div>
-            <div style={{overflowY:"auto",flex:1}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {filteredPoses.map(pose=>{
-                  const sel=slots[showPosePicker]?.poseId===pose.id;
-                  const cc=CAT_COLORS[pose.category]||C.purple;
-                  return(
-                    <div key={pose.id} onClick={()=>{setSlots(p=>p.map((s,i)=>i===showPosePicker?{...s,poseId:pose.id}:s));setShowPosePicker(null);}}
-                      style={{padding:"10px 12px",borderRadius:8,cursor:"pointer",border:`1px solid ${sel?cc:C.border}`,background:sel?`${cc}15`:C.surf,transition:"all 0.15s"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                        <div style={{width:7,height:7,borderRadius:"50%",background:cc,flexShrink:0}} />
-                        <span style={{fontSize:12,fontWeight:600}}>{pose.name}</span>
-                        <span style={{fontSize:10,color:cc,background:`${cc}20`,padding:"1px 6px",borderRadius:10,marginLeft:"auto"}}>{pose.category}</span>
-                      </div>
-                      <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>{pose.desc}</div>
+          </div>}
+
+          {/* Model selector (model mode only) */}
+          {mode==="model"&&<div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>④ Choose Model</div>
+            <button onClick={openGallery} style={{width:"100%",background:"#0d0d16",border:"1px solid",borderColor:selectedModel?"#7c3aed50":"#1a1a2e",padding:"11px 12px",borderRadius:9,cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
+              {selectedModel
+                ?<>{thumbs[selectedModel.id]?<img src={thumbs[selectedModel.id]} style={{width:42,height:42,borderRadius:7,objectFit:"cover",flexShrink:0}} alt=""/>:<div style={{width:42,height:42,borderRadius:7,background:"#1a1a2e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>👤</div>}<div style={{flex:1}}><div style={{fontWeight:700,color:"#c4b5fd",fontSize:13}}>{selectedModel.name}</div><div style={{fontSize:11,color:"#3a3a5c",marginTop:1}}>{selectedModel.tag}</div></div><div style={{color:"#2a2a40",fontSize:11}}>Change▸</div></>
+                :<><div style={{width:42,height:42,borderRadius:7,background:"#1a1a2e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>👤</div><div style={{color:"#2a2a40",fontSize:13}}>Browse &amp; select a model →</div></>
+              }
+            </button>
+          </div>}
+
+          {/* Output size */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>{mode==="model"?"⑤":""} Output Size &amp; Format</div>
+            <select value={sizeIdx} onChange={e=>setSizeIdx(Number(e.target.value))} style={{width:"100%",background:"#0d0d16",border:"1px solid #1a1a2e",color:"#e2e8f0",padding:"10px 12px",borderRadius:8,fontSize:12,outline:"none"}}>
+              {OUTPUT_SIZES.map((s,i)=><option key={i} value={i}>{s.label}</option>)}
+            </select>
+            <div style={{fontSize:11,color:"#2a2a40",marginTop:5,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+              <div style={{background:"#0d0d16",border:"1px solid #1a1a2e",borderRadius:5,padding:"4px 8px",textAlign:"center"}}>JPEG 95%</div>
+              <div style={{background:"#0d0d16",border:"1px solid #1a1a2e",borderRadius:5,padding:"4px 8px",textAlign:"center"}}>White BG</div>
+              <div style={{background:"#0d0d16",border:"1px solid #1a1a2e",borderRadius:5,padding:"4px 8px",textAlign:"center"}}>{outSize.w}×{outSize.h}</div>
+            </div>
+          </div>
+
+          {/* Enhance mode options */}
+          {mode==="enhance"&&<div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Enhancement Method</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {[["canvas","⚡ Canvas\n(Instant)"],["ai","🤖 AI Gemini\n(Better quality)"]].map(([m,label])=>(
+                <button key={m} onClick={()=>setEnhanceMode(m)} style={{padding:"10px 0",borderRadius:8,border:"1px solid",fontSize:11,fontWeight:700,cursor:"pointer",background:enhanceMode===m?"#7c3aed18":"#0d0d16",borderColor:enhanceMode===m?"#7c3aed":"#1a1a2e",color:enhanceMode===m?"#a78bfa":"#3a3a5c",lineHeight:1.4}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {enhanceMode==="ai"&&!geminiKey&&<div style={{fontSize:11,color:"#f87171",marginTop:6}}>⚠ AI Enhance requires a Gemini API key</div>}
+            <button onClick={runEnhance} disabled={!refImage||(enhanceMode==="ai"&&!geminiKey)} style={{marginTop:10,width:"100%",padding:"12px 0",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:800,background:(refImage&&(enhanceMode==="canvas"||geminiKey))?"linear-gradient(135deg,#7c3aed,#2563eb)":"#12121e",color:(refImage&&(enhanceMode==="canvas"||geminiKey))?"#fff":"#2a2a40"}}>
+              {isEnhancing?"⏳ Processing…":"✨ Enhance Reference Photo"}
+            </button>
+          </div>}
+
+          {/* Checklist (model mode) */}
+          {mode==="model"&&!canGenerate&&<div style={{background:"#0d0d14",border:"1px solid #1a1a2e",borderRadius:8,padding:"10px 12px"}}>
+            {[[!!geminiKey,"Gemini API key"],[!!refImage,"Product reference image"],[!!selectedModel,"Model selected"]].map(([ok,l])=>(
+              <div key={l} style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,fontSize:11,color:ok?"#4ade80":"#2a2a40"}}>
+                <span>{ok?"✓":"○"}</span>{l}
+              </div>
+            ))}
+          </div>}
+        </div>
+
+        {/* ── RIGHT PANEL ── */}
+        <div style={{padding:"20px 24px",overflowY:"auto"}}>
+
+          {/* ── MODEL MODE ── */}
+          {mode==="model"&&<>
+            {/* Pose configuration bar */}
+            <div style={{background:"#09090f",border:"1px solid #1a1a2e",borderRadius:12,padding:"14px 18px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#94a3b8"}}>🎭 Pose Configuration <span style={{fontWeight:400,color:"#2a2a40",fontSize:11}}>· click any slot to change</span></div>
+                <button onClick={()=>randomizeSlots(4)} className="btn-hover" style={{background:"#7c3aed18",border:"1px solid #7c3aed40",color:"#a78bfa",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>↺ Randomize 5–8</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                {slots.map((s,i)=>(
+                  <div key={i} style={{background:slotBg(s),border:"1px solid",borderColor:slotBorder(s),borderRadius:8,padding:"9px 11px",cursor:"pointer",position:"relative"}}
+                    onClick={()=>setActivePoseSlot(activePoseSlot===i?null:i)}>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                      <span style={{fontSize:10,fontWeight:700,color:"#3a3a5c"}}>#{i+1}</span>
+                      <span style={{fontSize:9,fontWeight:700,background:CAT_COLOR[s.pose.cat]+"25",color:CAT_COLOR[s.pose.cat],padding:"1px 5px",borderRadius:3}}>{s.pose.cat}</span>
+                      {s.status==="done"&&<span style={{fontSize:9,color:"#4ade80",marginLeft:"auto"}}>✓</span>}
+                      {s.status==="error"&&<span style={{fontSize:9,color:"#ef4444",marginLeft:"auto"}}>✕</span>}
+                      {s.status==="generating"&&<div style={{width:8,height:8,border:"1.5px solid #7c3aed30",borderTop:"1.5px solid #7c3aed",borderRadius:"50%",animation:"spin .7s linear infinite",marginLeft:"auto"}}/>}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-            <button onClick={()=>setShowPosePicker(null)} style={{...btn(C.border,true),marginTop:14,color:C.muted}}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* Logo Library Modal */}
-      {showLogoLibrary&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}
-          onClick={e=>e.target===e.currentTarget&&setShowLogoLibrary(false)}>
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:480,maxWidth:"90vw",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <div style={{fontWeight:700,fontSize:15}}>Logo Library</div>
-              <button onClick={()=>setShowLogoLibrary(false)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕ Close</button>
-            </div>
-            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>Saved logos persist across sessions. Click any logo to use it.</div>
-            {logoLibrary.length===0
-              ? <div style={{textAlign:"center",color:C.muted,padding:"40px 0",fontSize:13}}>
-                  No logos saved yet.<br/>Upload a logo in Reference Photos → click 💾 Save to Library
-                </div>
-              : <div style={{overflowY:"auto",flex:1}}>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
-                    {logoLibrary.map(logo=>(
-                      <div key={logo.id} style={{background:C.surf,borderRadius:8,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-                        <div onClick={()=>selectLogo(logo)} style={{aspectRatio:"1",display:"flex",alignItems:"center",justifyContent:"center",padding:8,cursor:"pointer",background:"#fff"}}>
-                          <img src={logo.dataUrl} alt={logo.name} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} />
-                        </div>
-                        <div style={{padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                          <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</div>
-                          <button onClick={()=>deleteLogo(logo.id)} style={{padding:"2px 6px",borderRadius:4,border:`1px solid ${C.danger}`,background:"transparent",color:C.danger,cursor:"pointer",fontSize:10,fontFamily:"inherit",marginLeft:6}}>🗑</button>
-                        </div>
-                        <div style={{padding:"0 10px 8px"}}>
-                          <button onClick={()=>selectLogo(logo)} style={{width:"100%",padding:"5px 0",borderRadius:5,border:"none",background:C.amber,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}>
-                            Use This Logo
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>}
-          </div>
-        </div>
-      )}
-      {/* Gallery Modal */}
-      {showGallery&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",display:"flex",flexDirection:"column",zIndex:200}}>
-          {/* Gallery header */}
-          <div style={{background:C.surf,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-            <div>
-              <div style={{fontWeight:700,fontSize:15}}>🖼 Image Gallery</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:2}}>{gallery.length} images saved · auto-saves every generated image</div>
-            </div>
-            <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <input placeholder="Search by product name..." value={gallerySearch} onChange={e=>setGallerySearch(e.target.value)}
-                style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 12px",color:C.text,fontSize:12,fontFamily:"inherit",width:220}} />
-              {gallery.length>0&&(
-                <button onClick={async()=>{if(confirm(`Delete all ${gallery.length} images from gallery?`)){await dbClear();setGallery([]);}}}
-                  style={{...btn(C.danger,true),fontSize:11}}>🗑 Clear All</button>
-              )}
-              <button onClick={()=>setShowGallery(false)} style={{...btn(C.border,true),fontSize:12,color:C.muted}}>✕ Close</button>
-            </div>
-          </div>
-
-          {/* Gallery grid */}
-          <div style={{flex:1,overflowY:"auto",padding:24}}>
-            {gallery.length===0?(
-              <div style={{textAlign:"center",color:C.muted,padding:"80px 20px"}}>
-                <div style={{fontSize:40,marginBottom:16}}>🖼</div>
-                <div style={{fontSize:16,fontWeight:600,marginBottom:8,color:C.text}}>No images yet</div>
-                <div style={{fontSize:13,lineHeight:1.6}}>Every image you generate is automatically saved here.<br/>Generate your first image to see it appear.</div>
-              </div>
-            ):(
-              <>
-                {/* Group by product */}
-                {(() => {
-                  const filtered = gallery.filter(img =>
-                    !gallerySearch || img.product_name.toLowerCase().includes(gallerySearch.toLowerCase()) || img.brand.toLowerCase().includes(gallerySearch.toLowerCase())
-                  );
-                  const groups = {};
-                  filtered.forEach(img => {
-                    const key = `${img.product_name} — ${img.brand} ${img.type} ${img.color}`;
-                    if(!groups[key]) groups[key] = [];
-                    groups[key].push(img);
-                  });
-                  return Object.entries(groups).map(([groupName, images]) => (
-                    <div key={groupName} style={{marginBottom:32}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                        <div>
-                          <div style={{fontWeight:600,fontSize:14}}>{groupName}</div>
-                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{images.length} image{images.length!==1?"s":""} · {new Date(images[0].created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
-                        </div>
-                        <button onClick={()=>{
-                          const s=document.createElement("script");
-                          s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-                          s.onload=async()=>{
-                            const zip=new window.JSZip();
-                            images.forEach(img=>zip.file(img.filename,img.thumbnail || img.full_image || img.imageData.split(",")[1],{base64:true}));
-                            const blob=await zip.generateAsync({type:"blob"});
-                            const u=URL.createObjectURL(blob);
-                            const a=document.createElement("a");a.href=u;a.download=`${images[0].product_name.replace(/\s+/g,"_")}_all.zip`;a.click();URL.revokeObjectURL(u);
-                          };
-                          document.head.appendChild(s);
-                        }} style={{...btn(C.teal),fontSize:11}}>⬇ Download All ({images.length})</button>
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
-                        {images.map(img=>(
-                          <div key={img.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
-                            <div style={{aspectRatio:"3/4",overflow:"hidden",position:"relative"}}>
-                              <img src={img.thumbnail || img.full_image || img.imageData} alt={img.filename} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                    <div style={{fontWeight:700,fontSize:12,color:"#e2e8f0",marginBottom:2}}>{s.pose.name}</div>
+                    <div style={{fontSize:10,color:"#2a2a40",lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{s.pose.desc.slice(0,60)}…</div>
+                    {/* Pose picker dropdown */}
+                    {activePoseSlot===i&&(
+                      <div style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#0d0d16",border:"1px solid #2a2a40",borderRadius:8,padding:6,width:240,maxHeight:260,overflowY:"auto",boxShadow:"0 12px 40px #00000090",marginTop:4}}>
+                        {POSE_POOL.map(p=>(
+                          <div key={p.id} className="pose-pick" onClick={(e)=>{e.stopPropagation();changePose(i,p);}} style={{padding:"8px 10px",borderRadius:6,cursor:"pointer",border:"1px solid transparent",background:"none",marginBottom:3}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span style={{fontSize:9,background:CAT_COLOR[p.cat]+"25",color:CAT_COLOR[p.cat],padding:"1px 5px",borderRadius:3,fontWeight:700}}>{p.cat}</span>
+                              <span style={{fontWeight:700,fontSize:12,color:"#e2e8f0"}}>{p.name}</span>
+                              {s.pose.id===p.id&&<span style={{color:"#7c3aed",marginLeft:"auto",fontSize:10}}>✓</span>}
                             </div>
-                            <div style={{padding:"8px 10px"}}>
-                              <div style={{fontSize:11,fontWeight:600,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{img.pose_name}</div>
-                              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{img.pose_category} · {new Date(img.created_at).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
-                              <div style={{display:"flex",gap:5}}>
-                                <button onClick={()=>{const a=document.createElement("a");a.href=img.thumbnail || img.full_image || img.imageData;a.download=img.filename;a.click();}}
-                                  style={{flex:1,padding:"4px 0",borderRadius:5,border:"none",background:C.purple,color:"#fff",cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit"}}>⬇</button>
-                                <button onClick={async()=>{await supaGalleryDelete(img.id);await dbDelete(img.id).catch(()=>{});setGallery(p=>p.filter(x=>x.id!==img.id));}}
-                                  style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.danger}`,background:"transparent",color:C.danger,cursor:"pointer",fontSize:10,fontFamily:"inherit"}}>🗑</button>
-                              </div>
-                            </div>
+                            <div style={{fontSize:10,color:"#3a3a5c",marginTop:2,lineHeight:1.3}}>{p.desc.slice(0,70)}…</div>
                           </div>
                         ))}
                       </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Generate controls */}
+            <div style={{background:"#09090f",border:"1px solid #1a1a2e",borderRadius:12,padding:"14px 18px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:doneSlots>0?10:0}}>
+                {!slot0done
+                  ?<button onClick={generateSample} disabled={!canGenerate||anyGenerating} className="btn-hover" style={{flex:1,padding:"12px 0",borderRadius:9,border:"none",cursor:canGenerate&&!anyGenerating?"pointer":"not-allowed",fontSize:13,fontWeight:800,background:canGenerate&&!anyGenerating?"linear-gradient(135deg,#7c3aed,#2563eb)":"#12121e",color:canGenerate&&!anyGenerating?"#fff":"#2a2a40"}}>
+                      {slots[0].status==="generating"?"⏳ Generating Sample…":"⚡ Generate Sample (1 of 8) →"}
+                    </button>
+                  :<button onClick={generateRemaining} disabled={!canGenerate||isGeneratingAll} className="btn-hover" style={{flex:1,padding:"12px 0",borderRadius:9,border:"none",cursor:canGenerate&&!isGeneratingAll?"pointer":"not-allowed",fontSize:13,fontWeight:800,background:canGenerate&&!isGeneratingAll?"linear-gradient(135deg,#16a34a,#059669)":"#12121e",color:canGenerate&&!isGeneratingAll?"#fff":"#2a2a40"}}>
+                      {isGeneratingAll?"⏳ Generating Remaining…":"▶ Generate Remaining (2–8) →"}
+                    </button>
+                }
+                {!slot0done&&<button onClick={generateAll} disabled={!canGenerate||anyGenerating} className="btn-hover" style={{padding:"12px 16px",borderRadius:9,border:"1px solid #1a1a2e",cursor:canGenerate&&!anyGenerating?"pointer":"not-allowed",fontSize:12,fontWeight:700,background:"#0d0d16",color:canGenerate&&!anyGenerating?"#64748b":"#2a2a40"}}>Generate All 8</button>}
+                {(isGeneratingAll||anyGenerating)&&<button onClick={stopGenerating} style={{padding:"12px 14px",borderRadius:9,border:"1px solid #ef444440",background:"#ef444415",color:"#f87171",cursor:"pointer",fontSize:12,fontWeight:700}}>⏹ Stop</button>}
+              </div>
+              {doneSlots>0&&<div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{flex:1,height:4,background:"#1a1a2e",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${(doneSlots/8)*100}%`,background:"linear-gradient(90deg,#7c3aed,#2563eb)",borderRadius:2,transition:"width .4s"}}/>
+                </div>
+                <span style={{fontSize:11,color:"#4a4a6a",flexShrink:0}}>{doneSlots}/8 done</span>
+                {doneSlots>0&&<button onClick={saveAllToGallery} className="btn-hover" style={{background:"#7c3aed18",border:"1px solid #7c3aed40",color:"#a78bfa",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>💾 Save All</button>}
+                {doneSlots>0&&<button onClick={downloadAll} className="btn-hover" style={{background:"#0d0d16",border:"1px solid #1a1a2e",color:"#64748b",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>⬇ Download All</button>}
+              </div>}
+            </div>
+
+            {/* 8-slot grid */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+              {slots.map((s,i)=>(
+                <div key={i} className="slot-card" style={{borderRadius:10,border:"1px solid",borderColor:slotBorder(s),background:slotBg(s),overflow:"hidden",position:"relative"}}>
+                  {/* Slot image or placeholder */}
+                  <div style={{aspectRatio:"3/4",background:"#090912",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+                    {s.image
+                      ?<img src={s.image} style={{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}} onClick={()=>setLightboxImg(s.image)} alt={s.pose.name}/>
+                      :<div style={{textAlign:"center",padding:12}}>
+                        {s.status==="generating"
+                          ?<><div style={{width:24,height:24,border:"2px solid #7c3aed30",borderTop:"2px solid #7c3aed",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 8px"}}/><div style={{fontSize:10,color:"#3a3a5c",animation:"pulse 1.5s ease-in-out infinite"}}>Generating…</div></>
+                          :s.status==="error"
+                            ?<><div style={{fontSize:20,marginBottom:4}}>✕</div><div style={{fontSize:9,color:"#ef4444",lineHeight:1.4}}>{s.error?.slice(0,60)}</div><button onClick={()=>generateSlot(i)} style={{marginTop:6,background:"#ef444420",border:"1px solid #ef444440",color:"#f87171",padding:"3px 8px",borderRadius:4,cursor:"pointer",fontSize:10}}>Retry</button></>
+                            :<><div style={{fontSize:28,color:"#1a1a2e",marginBottom:4}}>#{i+1}</div><div style={{fontSize:10,color:"#2a2a40"}}>{s.pose.name}</div></>
+                        }
+                      </div>
+                    }
+                    {/* Slot actions overlay */}
+                    {s.image&&<div className="slot-actions" style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(to top,#000000c0,transparent)",padding:"20px 8px 8px",display:"flex",gap:5,opacity:0,transition:"opacity .2s"}}>
+                      <button onClick={()=>downloadSlot(s)} style={{flex:1,background:"#00000060",border:"none",color:"#fff",padding:"5px 0",borderRadius:5,cursor:"pointer",fontSize:10,fontWeight:600}}>⬇</button>
+                      <button onClick={()=>saveSlotToGallery(s)} style={{flex:1,background:"#00000060",border:"none",color:"#fff",padding:"5px 0",borderRadius:5,cursor:"pointer",fontSize:10,fontWeight:600}}>💾</button>
+                      <button onClick={()=>generateSlot(i)} style={{flex:1,background:"#7c3aed80",border:"none",color:"#fff",padding:"5px 0",borderRadius:5,cursor:"pointer",fontSize:10,fontWeight:600}}>↻</button>
+                    </div>}
+                  </div>
+                  {/* Slot info */}
+                  <div style={{padding:"7px 9px",borderTop:"1px solid",borderColor:slotBorder(s)}}>
+                    <div style={{fontSize:10,fontWeight:700,color:s.status==="done"?"#4ade80":s.status==="error"?"#ef4444":"#3a3a5c"}}>{s.pose.name}</div>
+                    <div style={{fontSize:9,color:"#1e1e30",marginTop:1}}>{s.pose.cat}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>}
+
+          {/* ── ENHANCE MODE ── */}
+          {mode==="enhance"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,maxWidth:900}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,color:"#64748b",marginBottom:10}}>Original</div>
+              <div style={{aspectRatio:"3/4",background:"#09090f",border:"1px solid #1a1a2e",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                {refImage?<img src={refImage.preview} style={{width:"100%",height:"100%",objectFit:"contain"}} alt="original"/>:<div style={{color:"#1a1a2e",textAlign:"center"}}><div style={{fontSize:40}}>📷</div><div style={{fontSize:12}}>Upload product image on the left</div></div>}
+              </div>
+            </div>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,color:"#64748b",marginBottom:10}}>Enhanced <span style={{fontWeight:400,fontSize:11}}>— white bg · {outSize.w}×{outSize.h} · JPEG 95%</span></div>
+              <div style={{aspectRatio:"3/4",background:"#09090f",border:"1px solid #1a1a2e",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
+                {isEnhancing&&<div style={{textAlign:"center"}}><div style={{width:28,height:28,border:"2px solid #7c3aed30",borderTop:"2px solid #7c3aed",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 10px"}}/><div style={{color:"#3a3a5c",fontSize:12}}>Enhancing…</div></div>}
+                {!isEnhancing&&enhancedImage&&<img src={enhancedImage} style={{width:"100%",height:"100%",objectFit:"contain",cursor:"pointer"}} onClick={()=>setLightboxImg(enhancedImage)} alt="enhanced"/>}
+                {!isEnhancing&&!enhancedImage&&<div style={{color:"#1a1a2e",textAlign:"center"}}><div style={{fontSize:40}}>✨</div><div style={{fontSize:12}}>Enhanced image appears here</div></div>}
+              </div>
+              {enhancedImage&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+                <button onClick={()=>{const a=document.createElement("a");a.href=enhancedImage;a.download=`thugfit_enhanced_${Date.now()}.jpg`;a.click();}} className="btn-hover" style={{padding:"9px 0",borderRadius:7,border:"1px solid #7c3aed",background:"#7c3aed20",color:"#a78bfa",cursor:"pointer",fontSize:12,fontWeight:700}}>⬇ Download</button>
+                <button onClick={()=>{const item={id:Date.now(),url:enhancedImage,model:"Enhanced",garment:"Reference",pose:"Enhanced",gender,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short"})};const u=[item,...savedGallery].slice(0,80);setSavedGallery(u);try{localStorage.setItem("is_saved_gallery",JSON.stringify(u))}catch{}}} className="btn-hover" style={{padding:"9px 0",borderRadius:7,border:"1px solid #1a1a2e",background:"#0d0d16",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Save</button>
+              </div>}
+            </div>
+          </div>}
+        </div>
+      </div>
+
+      {/* ╔══ SAVED GALLERY ══╗ */}
+      {savedGallery.length>0&&<div id="gallery-section" style={{borderTop:"1px solid #1a1a2e",background:"#09090f",padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <span style={{fontWeight:800,fontSize:14,color:"#e2e8f0"}}>Saved Gallery <span style={{color:"#3a3a5c",fontWeight:400}}>({savedGallery.length})</span></span>
+          <button onClick={()=>{setSavedGallery([]);localStorage.removeItem("is_saved_gallery");}} style={{background:"none",border:"1px solid #1a1a2e",color:"#3a3a5c",padding:"5px 10px",borderRadius:6,cursor:"pointer",fontSize:11}}>Clear All</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10}}>
+          {savedGallery.map(item=>(
+            <div key={item.id} className="gcard" style={{borderRadius:8,overflow:"hidden",background:"#0d0d16",border:"1px solid #1a1a2e",cursor:"pointer",position:"relative"}} onClick={()=>setLightboxImg(item.url)}>
+              <img src={item.url} style={{width:"100%",aspectRatio:"1",objectFit:"cover"}} alt=""/>
+              <div style={{padding:"6px 8px"}}>
+                <div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{item.model}</div>
+                <div style={{fontSize:10,color:"#2a2a40",marginTop:1}}>{item.garment} · {item.date}</div>
+              </div>
+              <button className="gdel" onClick={e=>{e.stopPropagation();deleteFromGallery(item.id);}} style={{position:"absolute",top:5,right:5,background:"#0d0d16cc",border:"none",color:"#ef4444",cursor:"pointer",borderRadius:4,padding:"2px 6px",fontSize:11,opacity:0,transition:"opacity .15s"}}>✕</button>
+            </div>
+          ))}
+        </div>
+      </div>}
+
+      {/* ╔══ MODEL GALLERY MODAL ══╗ */}
+      {showGallery&&<div style={{position:"fixed",inset:0,background:"#000000b0",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowGallery(false)}>
+        <div style={{background:"#0d0d16",border:"1px solid #1a1a2e",borderRadius:14,width:"100%",maxWidth:940,maxHeight:"90vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:"16px 22px",borderBottom:"1px solid #1a1a2e",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <span style={{fontWeight:800,fontSize:16,color:"#f1f5f9"}}>Select Model</span>
+            <button onClick={()=>setShowGallery(false)} style={{background:"none",border:"none",color:"#3a3a5c",cursor:"pointer",fontSize:20,lineHeight:1}}>✕</button>
+          </div>
+          <div style={{padding:"12px 22px",borderBottom:"1px solid #1a1a2e",display:"flex",alignItems:"center",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+            {[["female","♀ Female (20)"],["male","♂ Male (20)"]].map(([g,label])=>(
+              <button key={g} onClick={()=>setGalleryTab(g)} style={{padding:"6px 16px",borderRadius:7,border:"1px solid",cursor:"pointer",fontSize:12,fontWeight:700,background:galleryTab===g?"#7c3aed20":"none",borderColor:galleryTab===g?"#7c3aed":"#1a1a2e",color:galleryTab===g?"#a78bfa":"#3a3a5c"}}>{label}</button>
+            ))}
+            <div style={{marginLeft:"auto",display:"flex",gap:7,alignItems:"center"}}>
+              {isGenAllThumbs
+                ?<button onClick={()=>{genAllRef.current=false;setIsGenAllThumbs(false);}} style={{background:"#ef444420",border:"1px solid #ef444440",color:"#f87171",padding:"6px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>⏹ Stop</button>
+                :<button onClick={generateAllThumbs} style={{background:"#7c3aed20",border:"1px solid #7c3aed40",color:"#a78bfa",padding:"6px 12px",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600}}>↻ Generate All Previews {missingThumbs>0&&`(${missingThumbs} missing)`}</button>
+              }
+              <button onClick={()=>{localStorage.removeItem("is_model_thumbs");setThumbs({});}} style={{background:"none",border:"1px solid #1a1a2e",color:"#2a2a40",padding:"6px 10px",borderRadius:6,cursor:"pointer",fontSize:10}}>Clear cache</button>
+            </div>
+          </div>
+          <div style={{padding:"6px 22px 10px",flexShrink:0}}>
+            <div style={{fontSize:11,color:"#2a2a40",background:"#0d0d14",border:"1px solid #1a1a2e",borderRadius:6,padding:"6px 12px"}}>
+              💡 First time: click <strong style={{color:"#3a3a5c"}}>Generate All Previews</strong> to load model photos (~2 min for 20 models). After that, previews are cached permanently.
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,padding:"0 22px 22px",overflowY:"auto"}}>
+            {galleryModels.map(model=>{
+              const sel=selectedModel?.id===model.id;
+              const loading=thumbLoading[model.id];
+              const thumb=thumbs[model.id];
+              return (
+                <div key={model.id} className="model-card" onClick={()=>selectModel(model)} style={{borderRadius:9,overflow:"hidden",background:"#0d0d16",border:"2px solid",borderColor:sel?"#7c3aed":"#1a1a2e",cursor:"pointer",transition:"all .15s"}}>
+                  {thumb
+                    ?<img src={thumb} style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} alt={model.name}/>
+                    :<div style={{width:"100%",aspectRatio:"1",background:loading?"#111120":"#090912",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:7}}>
+                      {loading?<><div style={{width:18,height:18,border:"2px solid #7c3aed30",borderTop:"2px solid #7c3aed",borderRadius:"50%",animation:"spin .8s linear infinite"}}/><div style={{fontSize:9,color:"#2a2a40"}}>generating…</div></>:<div style={{fontSize:30,color:"#1a1a2e"}}>👤</div>}
                     </div>
-                  ));
-                })()}
-              </>
-            )}
+                  }
+                  <div style={{padding:"7px 10px"}}>
+                    <div style={{fontWeight:700,fontSize:12,color:sel?"#c4b5fd":"#e2e8f0"}}>{sel?"✓ ":""}{model.name}</div>
+                    <div style={{fontSize:10,color:"#2a2a40",marginTop:1}}>{model.tag}</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>}
 
-      <style>{`
-        @keyframes spin{to{transform:rotate(360deg)}}
-        *{box-sizing:border-box;}
-        input:focus,textarea:focus,select:focus{outline:1px solid #6366f1;}
-        button:disabled{opacity:0.4;cursor:not-allowed;}
-        ::-webkit-scrollbar{width:4px;}
-        ::-webkit-scrollbar-thumb{background:#252538;border-radius:2px;}
-        select option{background:#1A1A28;}
-      `}</style>
+      {/* ╔══ SETTINGS MODAL ══╗ */}
+      {showSettings&&<div style={{position:"fixed",inset:0,background:"#000000b0",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSettings(false)}>
+        <div style={{background:"#0d0d16",border:"1px solid #1a1a2e",borderRadius:13,padding:26,width:400}}>
+          <div style={{fontWeight:800,fontSize:16,marginBottom:20,color:"#f1f5f9"}}>⚙ Settings</div>
+          <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Gemini API Key</div>
+          <input type="password" value={tempKey} onChange={e=>setTempKey(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveSettings()} placeholder="AIzaSy..." style={{width:"100%",background:"#09090f",border:"1px solid #1a1a2e",color:"#e2e8f0",padding:"10px 12px",borderRadius:8,fontSize:13,outline:"none"}}/>
+          <div style={{fontSize:11,color:"#2a2a40",marginTop:5,marginBottom:20}}>Get your key at <span style={{color:"#3a3a5c"}}>console.cloud.google.com → Gemini API</span></div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={saveSettings} className="btn-hover" style={{padding:"9px 22px",background:"linear-gradient(135deg,#7c3aed,#2563eb)",border:"none",color:"#fff",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13}}>Save</button>
+            <button onClick={()=>setShowSettings(false)} style={{padding:"9px 16px",background:"#12121e",border:"1px solid #1a1a2e",color:"#3a3a5c",borderRadius:8,cursor:"pointer",fontSize:13}}>Cancel</button>
+            {geminiKey&&<button onClick={()=>{localStorage.removeItem("is_total_gen");setTotalGenerated(0);}} style={{marginLeft:"auto",padding:"9px 12px",background:"none",border:"1px solid #1a1a2e",color:"#2a2a40",borderRadius:8,cursor:"pointer",fontSize:11}}>Reset counter</button>}
+          </div>
+        </div>
+      </div>}
+
+      {/* ╔══ LIGHTBOX ══╗ */}
+      {lightboxImg&&<div style={{position:"fixed",inset:0,background:"#000000d0",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}} onClick={()=>setLightboxImg(null)}>
+        <img src={lightboxImg} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:10}} alt="Full size"/>
+      </div>}
     </div>
   );
 }
