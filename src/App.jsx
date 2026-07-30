@@ -144,15 +144,17 @@ const DEFAULT_SLOTS = [
 
 const C = {bg:"#0D0D14",surf:"#13131E",card:"#1A1A28",border:"#252538",purple:"#6366f1",teal:"#10b981",amber:"#f59e0b",danger:"#ef4444",text:"#F0F0F8",muted:"#6B7090"};
 
-async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) {
-  // Build content parts — include reference image if provided
+async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null, logoBase64=null, logoMime=null) {
   const parts = [];
   if(refImageBase64 && refMime){
     parts.push({inlineData:{mimeType:refMime, data:refImageBase64}});
-    parts.push({text:`Using this reference product photo for exact design accuracy, generate a new professional product photo: ${prompt}`});
-  } else {
-    parts.push({text:prompt});
+    parts.push({text:"REFERENCE PRODUCT PHOTO — replicate this exact garment design, fabric, length, fit, and details. Do NOT copy the model/person from this photo."});
   }
+  if(logoBase64 && logoMime){
+    parts.push({inlineData:{mimeType:logoMime, data:logoBase64}});
+    parts.push({text:"BRAND LOGO — place this exact logo on the garment. Keep it small (no larger than 3cm in real life). Match position to reference product if shown, or place on left chest/left hip."});
+  }
+  parts.push({text: prompt});
 
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -165,7 +167,48 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null) 
   throw new Error("No image returned — check your API key and billing");
 }
 
-async function analyzeProductPhoto(base64Image, mime) {
+// ─── Supabase shared gallery ──────────────────────────────────────────────────
+const SUPA_URL = "https://ioniqxioapcdgenpksex.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvbmlxeGlvYXBjZGdlbnBrc2V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNDc1MDIsImV4cCI6MjEwMDcyMzUwMn0.PS80PFMqBYMf0e6uiYvTFk90gF7a7jo97C-dzzxUGho";
+
+async function supaGalleryLoad() {
+  const r = await fetch(`${SUPA_URL}/rest/v1/gallery_images?order=created_at.desc&limit=200`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  return r.json();
+}
+
+async function supaGallerySave(record) {
+  const r = await fetch(`${SUPA_URL}/rest/v1/gallery_images`, {
+    method: "POST",
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify(record)
+  });
+  return r.json();
+}
+
+async function supaGalleryDelete(id) {
+  await fetch(`${SUPA_URL}/rest/v1/gallery_images?id=eq.${id}`, {
+    method: "DELETE",
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+}
+
+// Compress full image to small thumbnail for Supabase storage (~10KB)
+async function toThumbnail(fullImageDataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 200; canvas.height = 267;
+      canvas.getContext("2d").drawImage(img, 0, 0, 200, 267);
+      resolve(canvas.toDataURL("image/jpeg", 0.65));
+    };
+    img.onerror = () => resolve(null);
+    img.src = fullImageDataUrl;
+  });
+}
+
   // Use ZenLine Digital's Claude proxy — already working, no extra setup needed
   const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
     method: "POST",
@@ -276,26 +319,45 @@ export default function App() {
   useEffect(() => { loadGallery(); }, []);
 
   async function loadGallery() {
-    try { setGallery(await dbGetAll()); } catch(e) { console.log("Gallery load failed:", e); }
+    // Load from Supabase (shared across all team members)
+    try {
+      const rows = await supaGalleryLoad();
+      if (Array.isArray(rows)) setGallery(rows);
+    } catch(e) {
+      // Fallback to local IndexedDB if Supabase fails
+      try { setGallery(await dbGetAll()); } catch {}
+    }
   }
 
   async function saveToGallery(imageData, slotIndex, pose) {
+    const thumbnail = await toThumbnail(imageData);
     const record = {
-      productName: product.name || "Unnamed",
+      product_name: product.name || "Unnamed",
       brand: product.brand,
       type: product.type,
       color: product.color,
       gender: product.gender,
-      poseName: pose?.name || "Unknown",
-      poseCategory: pose?.category || "",
-      imageData,
+      pose_name: pose?.name || "Unknown",
+      pose_category: pose?.category || "",
+      thumbnail, // compressed ~10KB for sharing
       filename: `${(product.name||"product").replace(/\s+/g,"_")}_${slotIndex+1}_${(pose?.name||"image").replace(/\s+/g,"_")}.jpg`,
-      createdAt: new Date().toISOString()
+      full_image: imageData, // full res stored locally only via IndexedDB
+      created_at: new Date().toISOString()
     };
+    // Save thumbnail to Supabase (visible to all team members)
     try {
-      const id = await dbSave(record);
+      const saved = await supaGallerySave({ ...record, full_image: null });
+      const id = saved?.[0]?.id;
+      // Save full image locally
+      await dbSave({ ...record, id });
       setGallery(prev => [{ ...record, id }, ...prev]);
-    } catch(e) { console.log("Gallery save failed:", e); }
+    } catch(e) {
+      // Fallback: local only
+      try {
+        const id = await dbSave(record);
+        setGallery(prev => [{ ...record, id }, ...prev]);
+      } catch {}
+    }
   }
 
   const [imagesGenerated,setImagesGenerated] = useState(()=>{
@@ -398,6 +460,29 @@ export default function App() {
     return {base64, mime};
   }
 
+  function getLogoData(){
+    if(!refs.logo) return {base64:null, mime:null};
+    return {
+      base64: refs.logo.split(",")[1],
+      mime: refs.logo.startsWith("data:image/png") ? "image/png" : "image/jpeg"
+    };
+  }
+
+  // Lock model for consistency across all 8 images — auto-pick if not set
+  function ensureLockedModel() {
+    if(product.lockedModel) return product.lockedModel;
+    const isFemale = product.gender === "Women's";
+    const pool = isFemale ? MODELS_FEMALE : MODELS_MALE;
+    const m = pool[Math.floor(Math.random() * pool.length)];
+    setProduct(p => ({...p, lockedModel: m}));
+    return m;
+  }
+
+  async function buildPromptWithLogo(product, pose, feedback, lockedModel) {
+    const productWithModel = {...product, lockedModel};
+    return buildPrompt(productWithModel, pose, feedback);
+  }
+
   async function generateSample(){
     if(!apiKey||apiKey.length<20){setShowKeyModal(true);return;}
     if(!product.name.trim()){alert("Enter a product name first");return;}
@@ -405,11 +490,15 @@ export default function App() {
     setSampleDone(false);
     setSampleFeedback("");
     setGenerating(true);
+    // Lock model NOW — same model will be used for all 8 images
+    const sessionModel = ensureLockedModel();
+    const sessionProduct = {...product, lockedModel: sessionModel};
     setSlots(p=>p.map((s,i)=>i===0?{...s,status:"generating",result:null,error:null}:{...s,status:"idle",result:null,error:null}));
     const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
     const {base64,mime}=getRefData();
+    const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
-      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+      const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
@@ -426,8 +515,9 @@ export default function App() {
     upd(0,{status:"generating",result:null,error:null});
     const pose=ALL_POSES.find(p=>p.id===slots[0].poseId)||ALL_POSES[0];
     const {base64,mime}=getRefData();
+    const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
-      const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime);
+      const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
@@ -442,14 +532,18 @@ export default function App() {
     if(!product.name.trim()){alert("Enter a product name first");return;}
     stopRef.current=false;
     setGenerating(true);
+    // Use same locked model for all remaining images
+    const sessionModel = product.lockedModel || ensureLockedModel();
+    const sessionProduct = {...product, lockedModel: sessionModel};
     const {base64,mime}=getRefData();
+    const {base64:logoB64,mime:logoMime}=getLogoData();
     setSlots(p=>p.map((s,i)=>i===0?s:{...s,status:"pending",result:null,error:null}));
     for(let i=1;i<slots.length;i++){
       if(stopRef.current){upd(i,{status:"idle"});continue;}
       upd(i,{status:"generating"});
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
       try{
-        const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+        const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
         const processed=await processImage(res.data,res.mime);
         upd(i,{status:"done",result:processed});
         trackImageGenerated();
@@ -464,8 +558,9 @@ export default function App() {
     upd(i,{status:"generating",error:null});
     const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
     const {base64,mime}=getRefData();
+    const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
-      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime);
+      const res=await generateImage(buildPrompt(product,pose),apiKey,base64,mime,logoB64,logoMime);
       const processed=await processImage(res.data,res.mime);
       upd(i,{status:"done",result:processed});
       trackImageGenerated();
@@ -932,11 +1027,11 @@ export default function App() {
                 {/* Group by product */}
                 {(() => {
                   const filtered = gallery.filter(img =>
-                    !gallerySearch || img.productName.toLowerCase().includes(gallerySearch.toLowerCase()) || img.brand.toLowerCase().includes(gallerySearch.toLowerCase())
+                    !gallerySearch || img.product_name.toLowerCase().includes(gallerySearch.toLowerCase()) || img.brand.toLowerCase().includes(gallerySearch.toLowerCase())
                   );
                   const groups = {};
                   filtered.forEach(img => {
-                    const key = `${img.productName} — ${img.brand} ${img.type} ${img.color}`;
+                    const key = `${img.product_name} — ${img.brand} ${img.type} ${img.color}`;
                     if(!groups[key]) groups[key] = [];
                     groups[key].push(img);
                   });
@@ -945,17 +1040,17 @@ export default function App() {
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                         <div>
                           <div style={{fontWeight:600,fontSize:14}}>{groupName}</div>
-                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{images.length} image{images.length!==1?"s":""} · {new Date(images[0].createdAt).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
+                          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{images.length} image{images.length!==1?"s":""} · {new Date(images[0].created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
                         </div>
                         <button onClick={()=>{
                           const s=document.createElement("script");
                           s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
                           s.onload=async()=>{
                             const zip=new window.JSZip();
-                            images.forEach(img=>zip.file(img.filename,img.imageData.split(",")[1],{base64:true}));
+                            images.forEach(img=>zip.file(img.filename,img.thumbnail || img.full_image || img.imageData.split(",")[1],{base64:true}));
                             const blob=await zip.generateAsync({type:"blob"});
                             const u=URL.createObjectURL(blob);
-                            const a=document.createElement("a");a.href=u;a.download=`${images[0].productName.replace(/\s+/g,"_")}_all.zip`;a.click();URL.revokeObjectURL(u);
+                            const a=document.createElement("a");a.href=u;a.download=`${images[0].product_name.replace(/\s+/g,"_")}_all.zip`;a.click();URL.revokeObjectURL(u);
                           };
                           document.head.appendChild(s);
                         }} style={{...btn(C.teal),fontSize:11}}>⬇ Download All ({images.length})</button>
@@ -964,15 +1059,15 @@ export default function App() {
                         {images.map(img=>(
                           <div key={img.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
                             <div style={{aspectRatio:"3/4",overflow:"hidden",position:"relative"}}>
-                              <img src={img.imageData} alt={img.filename} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                              <img src={img.thumbnail || img.full_image || img.imageData} alt={img.filename} style={{width:"100%",height:"100%",objectFit:"cover"}} />
                             </div>
                             <div style={{padding:"8px 10px"}}>
-                              <div style={{fontSize:11,fontWeight:600,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{img.poseName}</div>
-                              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{img.poseCategory} · {new Date(img.createdAt).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
+                              <div style={{fontSize:11,fontWeight:600,marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{img.pose_name}</div>
+                              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{img.pose_category} · {new Date(img.created_at).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
                               <div style={{display:"flex",gap:5}}>
-                                <button onClick={()=>{const a=document.createElement("a");a.href=img.imageData;a.download=img.filename;a.click();}}
+                                <button onClick={()=>{const a=document.createElement("a");a.href=img.thumbnail || img.full_image || img.imageData;a.download=img.filename;a.click();}}
                                   style={{flex:1,padding:"4px 0",borderRadius:5,border:"none",background:C.purple,color:"#fff",cursor:"pointer",fontSize:10,fontWeight:600,fontFamily:"inherit"}}>⬇</button>
-                                <button onClick={async()=>{await dbDelete(img.id);setGallery(p=>p.filter(x=>x.id!==img.id));}}
+                                <button onClick={async()=>{await supaGalleryDelete(img.id);await dbDelete(img.id).catch(()=>{});setGallery(p=>p.filter(x=>x.id!==img.id));}}
                                   style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${C.danger}`,background:"transparent",color:C.danger,cursor:"pointer",fontSize:10,fontFamily:"inherit"}}>🗑</button>
                               </div>
                             </div>
