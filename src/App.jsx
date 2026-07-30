@@ -156,13 +156,37 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null, 
   }
   parts.push({text: prompt});
 
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
+  // Try Imagen 3 first (best quality, handles fabric texture and patterns)
+  try {
+    const imgPrompt = parts.map(p => p.text || "").filter(Boolean).join("\n\n");
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        instances:[{prompt: imgPrompt}],
+        parameters:{sampleCount:1, aspectRatio:"3:4"}
+      })
+    });
+    const d = await r.json();
+    if(d.predictions?.[0]?.bytesBase64Encoded){
+      return {data:d.predictions[0].bytesBase64Encoded, mime:"image/png"};
+    }
+    if(d.error) throw new Error(d.error.message);
+  } catch(e) {
+    if(e.message?.includes("not found") || e.message?.includes("not support")) {
+      // Fall through to Gemini Flash
+    } else {
+      throw e;
+    }
+  }
+
+  // Fallback: Gemini Flash Lite image
+  const r2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,{
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts}],generationConfig:{responseModalities:["TEXT","IMAGE"]}})
   });
-  const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
-  for(const part of d.candidates?.[0]?.content?.parts||[])
+  const d2 = await r2.json();
+  if(d2.error) throw new Error(d2.error.message);
+  for(const part of d2.candidates?.[0]?.content?.parts||[])
     if(part.inlineData?.data) return {data:part.inlineData.data,mime:part.inlineData.mimeType};
   throw new Error("No image returned — check your API key and billing");
 }
@@ -637,7 +661,7 @@ export default function App() {
             🖼 Gallery ({gallery.length})
           </button>
           <div style={{fontSize:11,color:C.muted,background:C.card,padding:"5px 12px",borderRadius:20,border:`1px solid ${C.border}`}}>
-            💰 {imagesGenerated} images · ~${(imagesGenerated*0.0336).toFixed(3)} spent
+            💰 {imagesGenerated} images · ~${(imagesGenerated*0.04).toFixed(3)} spent
           </div>
           <button onClick={()=>setShowKeyModal(true)} style={{...btn(apiKey.length>20?C.teal:C.purple),fontSize:11,display:"flex",alignItems:"center",gap:6}}>
             🔑 {apiKey.length>20?"✓ API Key Set":"Add API Key"}
@@ -772,7 +796,7 @@ export default function App() {
           {/* Output specs */}
           <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:14}}>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {[["Output size","1948 × 2656 px"],["Format","JPEG 95% quality"],["Background","Pure white #FFFFFF"],["Images per product","8"],["AI model","Gemini Imagen 3"]].map(([k,v])=>(
+              {[["Output size","1948 × 2656 px"],["Format","JPEG 95% quality"],["Background","Pure white #FFFFFF"],["Images per product","8"],["AI model","Imagen 3 → Gemini Flash (fallback)"]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{fontSize:11,color:C.muted}}>{k}</span>
                   <span style={{fontSize:11,fontWeight:500}}>{v}</span>
