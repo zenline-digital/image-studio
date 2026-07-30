@@ -254,7 +254,7 @@ export default function App() {
   const [tempKey, setTempKey] = useState("");
 
   // ── Product inputs ────────────────────────────
-  const [refImage, setRefImage] = useState(null);
+  const [refImages, setRefImages] = useState({front:null,back:null,side:null,detail:null});
   const [garmentType, setGarmentType] = useState("T-Shirt");
   const [gender, setGender] = useState("female");
   const [selectedModel, setSelectedModel] = useState(null);
@@ -295,7 +295,7 @@ export default function App() {
   });
   const [lightboxImg, setLightboxImg] = useState(null);
 
-  const fileRef = useRef();
+  // fileRef removed — per-slot upload inputs used instead
 
   // ── Settings ──────────────────────────────────
   const openSettings = () => { setTempKey(geminiKey); setShowSettings(true); };
@@ -306,16 +306,21 @@ export default function App() {
   };
 
   // ── File upload ───────────────────────────────
-  const handleFile = f => {
+  const handleFile = (f, slot) => {
     if (!f || !f.type.startsWith("image/")) return;
     const r = new FileReader();
     r.onload = e => {
       const url = e.target.result;
-      setRefImage({data:url.split(",")[1], mime:f.type, preview:url});
+      setRefImages(prev=>({...prev,[slot]:{data:url.split(",")[1],mime:f.type,preview:url}}));
       setSlots(prev=>prev.map(s=>({...s,image:null,status:"idle",error:null})));
       setEnhancedImage(null);
     };
     r.readAsDataURL(f);
+  };
+  const removeRef = (slot) => {
+    setRefImages(prev=>({...prev,[slot]:null}));
+    setSlots(prev=>prev.map(s=>({...s,image:null,status:"idle",error:null})));
+    setEnhancedImage(null);
   };
 
   // ── Model thumbnails ──────────────────────────
@@ -381,14 +386,28 @@ export default function App() {
 
   // ── Generate a single slot ────────────────────
   const generateSlot = async (slotIdx) => {
-    if (!geminiKey||!refImage||!selectedModel) return;
+    if (!geminiKey||!refImages.front||!selectedModel) return;
     const pose = slots[slotIdx].pose;
     setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,status:"generating",error:null}:s));
     try {
-      const img = await callGemini(geminiKey,[
-        {inlineData:{mimeType:refImage.mime, data:refImage.data}},
-        {text:buildSlotPrompt(selectedModel,garmentType,pose)},
-      ],0.2);
+      // Build multi-image parts — label each image so Gemini knows which is which
+      const parts = [];
+      parts.push({inlineData:{mimeType:refImages.front.mime,data:refImages.front.data}});
+      parts.push({text:"[REFERENCE IMAGE 1 — FRONT VIEW of the product]"});
+      if(refImages.back){
+        parts.push({inlineData:{mimeType:refImages.back.mime,data:refImages.back.data}});
+        parts.push({text:"[REFERENCE IMAGE 2 — BACK VIEW of the product]"});
+      }
+      if(refImages.side){
+        parts.push({inlineData:{mimeType:refImages.side.mime,data:refImages.side.data}});
+        parts.push({text:"[REFERENCE IMAGE 3 — SIDE VIEW of the product]"});
+      }
+      if(refImages.detail){
+        parts.push({inlineData:{mimeType:refImages.detail.mime,data:refImages.detail.data}});
+        parts.push({text:"[REFERENCE IMAGE 4 — DETAIL/CLOSE-UP of the product]"});
+      }
+      parts.push({text:buildSlotPrompt(selectedModel,garmentType,pose,refImages)});
+      const img = await callGemini(geminiKey,parts,0.2);
       const raw = `data:${img.mimeType};base64,${img.data}`;
       const processed = await toOutputSpec(raw, outSize.w, outSize.h, 0.95);
       setSlots(prev=>prev.map((s,i)=>i===slotIdx?{...s,status:"done",image:processed,error:null}:s));
@@ -442,16 +461,18 @@ export default function App() {
     if (!refImage) return;
     setIsEnhancing(true); setEnhancedImage(null);
     try {
+      const frontImg = refImages.front;
+      if(!frontImg) return;
       if (enhanceMode==="ai") {
         const img = await callGemini(geminiKey,[
-          {inlineData:{mimeType:refImage.mime,data:refImage.data}},
+          {inlineData:{mimeType:frontImg.mime,data:frontImg.data}},
           {text:`Professional product photographer task: Take this product image and output it with a perfectly pure white (#FFFFFF) background. Keep the product EXACTLY the same — same size, same colors, same logo, same design, same proportions. Just remove any existing background and place on clean pure white. Add clean even studio lighting. Professional product photography quality. High resolution, sharp, no shadows on white background.`},
         ],0.15);
         const raw=`data:${img.mimeType};base64,${img.data}`;
         const out=await toOutputSpec(raw,outSize.w,outSize.h,0.95);
         setEnhancedImage(out);
       } else {
-        const out=await canvasEnhance(refImage.preview,outSize.w,outSize.h,0.95);
+        const out=await canvasEnhance(frontImg.preview,outSize.w,outSize.h,0.95);
         setEnhancedImage(out);
       }
     } catch(e) {
@@ -494,7 +515,7 @@ export default function App() {
   const doneSlots = slots.filter(s=>s.status==="done").length;
   const anyGenerating = slots.some(s=>s.status==="generating");
   const slot0done = slots[0].status==="done";
-  const canGenerate = !!(geminiKey&&refImage&&selectedModel);
+  const canGenerate = !!(geminiKey&&refImages.front&&selectedModel);
   const estimatedCost = (totalGenerated*0.04).toFixed(2);
 
   // ── Slot status helpers ────────────────────────
@@ -554,22 +575,44 @@ export default function App() {
         {/* ── LEFT PANEL ── */}
         <div style={{borderRight:"1px solid #1a1a2e",background:"#09090f",padding:20,display:"flex",flexDirection:"column",gap:18,overflowY:"auto"}}>
 
-          {/* Ref image */}
+          {/* Ref images — multi-slot */}
           <div>
-            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>① Reference Product Photo</div>
-            <div
-              style={{border:"2px dashed",borderColor:refImage?"#7c3aed60":"#1a1a2e",borderRadius:10,padding:refImage?0:22,textAlign:"center",cursor:"pointer",background:"#0d0d16",overflow:"hidden"}}
-              onClick={()=>fileRef.current?.click()}
-              onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}}
-              onDragOver={e=>e.preventDefault()}
-            >
-              {refImage
-                ?<img src={refImage.preview} style={{width:"100%",maxHeight:200,objectFit:"contain",display:"block",background:"#0a0a14",borderRadius:9}} alt="ref"/>
-                :<><div style={{fontSize:32,marginBottom:6}}>📷</div><div style={{color:"#2a2a40",fontSize:12}}>Drop product photo here or click</div><div style={{color:"#1a1a2e",fontSize:11,marginTop:3}}>Any background OK</div></>
-              }
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>① Reference Product Photos</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+              {[
+                {key:"front",label:"Front",emoji:"🔵",required:true},
+                {key:"back", label:"Back", emoji:"🟣",required:true},
+                {key:"side", label:"Side", emoji:"🟡",required:false},
+                {key:"detail",label:"Detail/Close-up",emoji:"🔍",required:false},
+              ].map(({key,label,emoji,required})=>{
+                const img=refImages[key];
+                const inputId=`ref-input-${key}`;
+                return (
+                  <div key={key}>
+                    <div style={{fontSize:9,fontWeight:700,color:required?(img?"#a78bfa":"#ef4444"):"#2a2a40",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
+                      {emoji} {label}{required&&!img&&" *"}
+                    </div>
+                    <div
+                      style={{border:"1.5px dashed",borderColor:img?"#7c3aed60":required?"#3a1a1a":"#1a1a2e",borderRadius:8,padding:img?0:14,textAlign:"center",cursor:"pointer",background:"#0d0d16",overflow:"hidden",minHeight:80,display:"flex",alignItems:"center",justifyContent:"center"}}
+                      onClick={()=>document.getElementById(inputId)?.click()}
+                      onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0],key);}}
+                      onDragOver={e=>e.preventDefault()}
+                    >
+                      {img
+                        ?<div style={{position:"relative",width:"100%"}}>
+                           <img src={img.preview} style={{width:"100%",maxHeight:120,objectFit:"contain",display:"block",background:"#0a0a14",borderRadius:7}} alt={label}/>
+                           <button onClick={e=>{e.stopPropagation();removeRef(key);}} style={{position:"absolute",top:4,right:4,background:"#0d0d16cc",border:"none",color:"#ef4444",cursor:"pointer",borderRadius:4,padding:"2px 6px",fontSize:11,lineHeight:1}}>✕</button>
+                         </div>
+                        :<div><div style={{fontSize:20,marginBottom:3}}>{emoji}</div><div style={{color:"#2a2a40",fontSize:10}}>{label}</div><div style={{color:"#1a1a2e",fontSize:9,marginTop:1}}>drop or click</div></div>
+                      }
+                    </div>
+                    <input id={inputId} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0],key)}/>
+                  </div>
+                );
+              })}
             </div>
-            {refImage&&<button onClick={()=>{setRefImage(null);setSlots(prev=>prev.map(s=>({...s,image:null,status:"idle",error:null})));setEnhancedImage(null);}} style={{marginTop:6,width:"100%",background:"none",border:"1px solid #1a1a2e",color:"#3a3a5c",padding:"6px 0",borderRadius:7,cursor:"pointer",fontSize:11}}>✕ Remove image</button>}
-            <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            {!refImages.front&&<div style={{fontSize:10,color:"#3a1a1a",marginTop:5,background:"#1a0a0a",border:"1px solid #3a1a1a",borderRadius:5,padding:"5px 9px"}}>⚠ Front photo is required to generate</div>}
+            {refImages.front&&!refImages.back&&<div style={{fontSize:10,color:"#2a2010",marginTop:5,background:"#1a150a",border:"1px solid #2a2010",borderRadius:5,padding:"5px 9px"}}>💡 Add Back photo so the Back View pose is accurate</div>}
           </div>
 
           {/* Garment */}
@@ -627,14 +670,14 @@ export default function App() {
               ))}
             </div>
             {enhanceMode==="ai"&&!geminiKey&&<div style={{fontSize:11,color:"#f87171",marginTop:6}}>⚠ AI Enhance requires a Gemini API key</div>}
-            <button onClick={runEnhance} disabled={!refImage||(enhanceMode==="ai"&&!geminiKey)} style={{marginTop:10,width:"100%",padding:"12px 0",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:800,background:(refImage&&(enhanceMode==="canvas"||geminiKey))?"linear-gradient(135deg,#7c3aed,#2563eb)":"#12121e",color:(refImage&&(enhanceMode==="canvas"||geminiKey))?"#fff":"#2a2a40"}}>
+            <button onClick={runEnhance} disabled={!refImages.front||(enhanceMode==="ai"&&!geminiKey)} style={{marginTop:10,width:"100%",padding:"12px 0",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:800,background:(refImages.front&&(enhanceMode==="canvas"||geminiKey))?"linear-gradient(135deg,#7c3aed,#2563eb)":"#12121e",color:(refImages.front&&(enhanceMode==="canvas"||geminiKey))?"#fff":"#2a2a40"}}>
               {isEnhancing?"⏳ Processing…":"✨ Enhance Reference Photo"}
             </button>
           </div>}
 
           {/* Checklist (model mode) */}
           {mode==="model"&&!canGenerate&&<div style={{background:"#0d0d14",border:"1px solid #1a1a2e",borderRadius:8,padding:"10px 12px"}}>
-            {[[!!geminiKey,"Gemini API key"],[!!refImage,"Product reference image"],[!!selectedModel,"Model selected"]].map(([ok,l])=>(
+            {[[!!geminiKey,"Gemini API key"],[!!refImages.front,"Front product photo"],[!!refImages.back,"Back photo (for Back View pose)"],[!!selectedModel,"Model selected"]].map(([ok,l])=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,fontSize:11,color:ok?"#4ade80":"#2a2a40"}}>
                 <span>{ok?"✓":"○"}</span>{l}
               </div>
@@ -749,7 +792,7 @@ export default function App() {
             <div>
               <div style={{fontWeight:700,fontSize:13,color:"#64748b",marginBottom:10}}>Original</div>
               <div style={{aspectRatio:"3/4",background:"#09090f",border:"1px solid #1a1a2e",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-                {refImage?<img src={refImage.preview} style={{width:"100%",height:"100%",objectFit:"contain"}} alt="original"/>:<div style={{color:"#1a1a2e",textAlign:"center"}}><div style={{fontSize:40}}>📷</div><div style={{fontSize:12}}>Upload product image on the left</div></div>}
+                {refImages.front?<img src={refImages.front.preview} style={{width:"100%",height:"100%",objectFit:"contain"}} alt="original"/>:<div style={{color:"#1a1a2e",textAlign:"center"}}><div style={{fontSize:40}}>📷</div><div style={{fontSize:12}}>Upload front product image on the left</div></div>}
               </div>
             </div>
             <div>
