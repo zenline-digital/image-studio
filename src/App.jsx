@@ -112,6 +112,17 @@ const sbGallery = {
   remove: (id,tok,k)   => sbFetch(`/rest/v1/gallery_images?id=eq.${id}`,"DELETE",null,tok,k),
 };
 
+// Silently refresh an expired access_token using the stored refresh_token
+async function refreshSession(refreshToken, key) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","apikey":key},
+    body:JSON.stringify({refresh_token:refreshToken}),
+  });
+  if (!res.ok) throw new Error("Session expired");
+  return res.json(); // returns { access_token, refresh_token, user }
+}
+
 // ═══════════════════════════════════════════════════
 //  GEMINI + CANVAS UTILITIES
 // ═══════════════════════════════════════════════════
@@ -457,6 +468,27 @@ export default function App() {
         if (d.access_token) { setInviteData({token:d.access_token}); window.history.replaceState(null,"",window.location.pathname); }
       }).catch(()=>{});
     }
+  },[]);
+
+  // ── Auto-refresh session on load (keeps users logged in) ──
+  useEffect(()=>{
+    const stored = JSON.parse(localStorage.getItem("is_supa_session")||"null");
+    if (!stored?.refresh_token) return; // nothing stored, show login
+    const k = BUILT_IN_SUPA_KEY||localStorage.getItem("is_supa_key")||"";
+    if (!k) return;
+    // Try to silently get a fresh access_token
+    refreshSession(stored.refresh_token, k)
+      .then(data=>{
+        const sess={access_token:data.access_token,refresh_token:data.refresh_token,user:data.user};
+        localStorage.setItem("is_supa_session",JSON.stringify(sess));
+        setSession(sess);
+        setSupaKey(k);
+      })
+      .catch(()=>{
+        // Refresh token also expired — clear everything, show login
+        localStorage.removeItem("is_supa_session");
+        setSession(null);
+      });
   },[]);
 
   // ── API Keys ──────────────────────────────────
