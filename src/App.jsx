@@ -341,7 +341,7 @@ async function analyzeProductPhoto(base64Image, mime) {
   }
 }
 
-async function processImage(base64Data, mime) {
+async function processImage(base64Data, mime, isWhiteProduct=false) {
   return new Promise((resolve,reject) => {
     const img = new Image();
     img.onload = () => {
@@ -361,7 +361,6 @@ async function processImage(base64Data, mime) {
       const imageData=ctx.getImageData(0,0,W,H);
       const d=imageData.data;
 
-      // Sample background from IMAGE CONTENT corners (not canvas corners which are white padding)
       const sx0=ox+4, sy0=oy+4;
       const sx1=Math.min(ox+Math.round(sw)-5, W-5);
       const sy1=Math.min(oy+Math.round(sh)-5, H-5);
@@ -370,16 +369,13 @@ async function processImage(base64Data, mime) {
       samples.forEach(([x,y])=>{const i=(y*W+x)*4; rSum+=d[i];gSum+=d[i+1];bSum+=d[i+2];});
       const bgR=Math.round(rSum/4), bgG=Math.round(gSum/4), bgB=Math.round(bSum/4);
 
-      // Is background gray (generated for white garment) or white/near-white?
       const isGray = bgR < 235 && Math.abs(bgR-bgG)<20 && Math.abs(bgG-bgB)<20;
-      const tol = isGray ? 35 : 15; // wider tolerance for gray bg, narrow for white bg
+      const tol = isGray ? 35 : 15;
 
       const visited=new Uint8Array(W*H);
       const isBg=(i)=>Math.abs(d[i]-bgR)<tol && Math.abs(d[i+1]-bgG)<tol && Math.abs(d[i+2]-bgB)<tol;
 
-      // Seed flood-fill from image content corners + canvas edges
-      const seeds=[[0,0],[W-1,0],[0,H-1],[W-1,H-1],
-                   [sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
+      const seeds=[[0,0],[W-1,0],[0,H-1],[W-1,H-1],[sx0,sy0],[sx1,sy0],[sx0,sy1],[sx1,sy1]];
       const queue=[];
       seeds.forEach(([x,y])=>{
         const p=y*W+x;
@@ -397,6 +393,22 @@ async function processImage(base64Data, mime) {
           }
         }
       }
+
+      // White garment post-processing: brighten gray fabric shadows
+      if(isWhiteProduct){
+        for(let i=0;i<d.length;i+=4){
+          const r=d[i],g=d[i+1],b=d[i+2];
+          const avg=(r+g+b)/3;
+          // Only affect near-white gray (not pure white, not dark logo/text pixels)
+          if(avg>160 && avg<245 && Math.abs(r-g)<30 && Math.abs(g-b)<30){
+            const boost=Math.round((255-avg)*0.65);
+            d[i]=Math.min(255,r+boost);
+            d[i+1]=Math.min(255,g+boost);
+            d[i+2]=Math.min(255,b+boost);
+          }
+        }
+      }
+
       ctx.putImageData(imageData,0,0);
       resolve(canvas.toDataURL("image/jpeg",0.97));
     };
@@ -418,7 +430,8 @@ function buildPrompt(product, pose, feedback="") {
   const isWhiteGarment = color.toLowerCase().includes("white") || color.toLowerCase().includes("off-white") || color.toLowerCase().includes("cream") || color.toLowerCase().includes("ivory");
 
   const quality = isWhiteGarment
-    ? `BACKGROUND: Use a LIGHT NEUTRAL GRAY background (#CCCCCC / RGB 204,204,204) — NOT white. This is essential so the white garment is clearly differentiated from the background. The background will be replaced with pure white in post-production. Studio lighting: soft even light, no harsh shadows. Show full fabric texture, mesh pattern, and all design details clearly — do not overexpose. The garment must be sharp and detailed with visible texture.`
+    ? `BACKGROUND: Use a LIGHT NEUTRAL GRAY background (#BBBBBB) so the white garment is clearly separate from background.
+LIGHTING FOR WHITE GARMENT: Use a large front-facing softbox or ring light setup that produces FLAT, EVEN, SHADOW-FREE illumination across the entire white garment. NO directional shadows, NO gray blotches, NO lighting gradients on the fabric surface. The white fabric must appear uniformly bright white across all areas — no patches of gray or shadow. The texture and mesh pattern should be visible only through subtle tone-on-tone detail, not through gray shadows. Think: clean catalogue photography lighting, not fashion editorial.`
     : `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients. Studio lighting: perfectly even, no hotspots. Ultra-sharp focus, high resolution. Suitable for Noon/Amazon marketplace and brand website hero images.`;
 
   // Logo only goes on front-facing views, not back views
@@ -746,8 +759,9 @@ export default function App() {
     const {base64,mime}=getRefData();
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
+      const isWPs=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
       const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime);
+      const processed=await processImage(res.data,res.mime,isWPs);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
       await saveToGallery(processed,0,pose);
@@ -765,8 +779,9 @@ export default function App() {
     const {base64,mime}=getRefData();
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
+      const isWP2=product.color.toLowerCase().includes('white')||product.color.toLowerCase().includes('cream')||product.color.toLowerCase().includes('ivory');
       const res=await generateImage(buildPrompt(product,pose,sampleFeedback),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime);
+      const processed=await processImage(res.data,res.mime,isWP2);
       upd(0,{status:"done",result:processed});
       trackImageGenerated();
       await saveToGallery(processed,0,pose);
@@ -791,8 +806,9 @@ export default function App() {
       upd(i,{status:"generating"});
       const pose=ALL_POSES.find(p=>p.id===slots[i].poseId)||ALL_POSES[0];
       try{
+        const isWP=sessionProduct.color.toLowerCase().includes('white')||sessionProduct.color.toLowerCase().includes('cream')||sessionProduct.color.toLowerCase().includes('ivory');
         const res=await generateImage(buildPrompt(sessionProduct,pose),apiKey,base64,mime,logoB64,logoMime);
-        const processed=await processImage(res.data,res.mime);
+        const processed=await processImage(res.data,res.mime,isWP);
         upd(i,{status:"done",result:processed});
         trackImageGenerated();
         await saveToGallery(processed,i,pose);
@@ -813,7 +829,7 @@ export default function App() {
     const {base64:logoB64,mime:logoMime}=getLogoData();
     try{
       const res=await generateImage(buildPrompt(product,pose,feedback),apiKey,base64,mime,logoB64,logoMime);
-      const processed=await processImage(res.data,res.mime);
+      const processed=await processImage(res.data,res.mime,product.color.toLowerCase().includes("white")||product.color.toLowerCase().includes("cream")||product.color.toLowerCase().includes("ivory"));
       upd(i,{status:"done",result:processed});
       trackImageGenerated();
       await saveToGallery(processed,i,pose);
