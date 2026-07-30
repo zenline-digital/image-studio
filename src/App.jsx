@@ -148,7 +148,7 @@ async function generateImage(prompt, apiKey, refImageBase64=null, refMime=null, 
   const parts = [];
   if(refImageBase64 && refMime){
     parts.push({inlineData:{mimeType:refMime, data:refImageBase64}});
-    parts.push({text:"REFERENCE PRODUCT PHOTO — replicate this exact garment design, fabric, length, fit, and details. Do NOT copy the model/person from this photo."});
+    parts.push({text:"THIS IS THE REFERENCE PRODUCT. Study every detail: fabric pattern, texture, logo shape and position, seam lines, piping color, garment length and fit. You MUST replicate all of these exactly on the generated garment. Do NOT copy the person/model from this photo."});
   }
   if(logoBase64 && logoMime){
     parts.push({inlineData:{mimeType:logoMime, data:logoBase64}});
@@ -288,18 +288,50 @@ function buildPrompt(product, pose, feedback="") {
   const {type,gender,color,brand,designNotes,lockedModel} = product;
   const gModel = gender==="Women's"?"female":gender==="Men's"?"male":gender==="Youth"?"young":"athletic";
   const modelDesc = lockedModel || `${gModel} athletic model with fit physique`;
-  const modelNote = `IMPORTANT: The model in this photo must be a completely different person from any reference image provided — different face, different skin tone, different nationality. Use a professional studio model.`;
 
   const isFlat = pose.category==="Flat Lay";
   const isDetail = pose.category==="Detail";
 
-  const quality = `PURE BRIGHT WHITE background #FFFFFF only — no shadows on background, perfectly even studio lighting. Ultra-sharp focus, high resolution. Premium quality for brand website hero images and marketplace listings (Noon, Amazon standard).`;
-  const design = designNotes ? `Exact product design to replicate precisely: ${designNotes}` : "";
-  const changes = feedback ? ` CHANGES REQUESTED: ${feedback}` : "";
+  const quality = `Background: PURE WHITE #FFFFFF — perfectly flat, no shadows, no gradients, no texture. Studio lighting: perfectly even, no hotspots. Output: ultra-sharp, high resolution, suitable for Noon/Amazon marketplace and brand website hero images.`;
 
-  if(isFlat) return `Professional product flat lay photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Match reference product exactly — same proportions, design details, fabric appearance. 3:4 portrait.${changes}`;
-  if(isDetail) return `Extreme close-up product photography of ${color} ${brand} ${type}. ${pose.desc} ${design} ${quality} Show exact fabric texture, weave, stitching. 3:4 portrait.${changes}`;
-  return `Professional activewear product photography. ${modelDesc} wearing ${color} ${brand} ${type}. ${modelNote} ${pose.desc} ${design} ${quality} Garment must match reference exactly — same length, same fit, same fabric texture and sheen, same logo placement and size, same waistband style. Model face neutral and confident. Full body clearly visible. 3:4 portrait.${changes}`;
+  const logoInstructions = `LOGO RULE: The reference product photo shows a specific logo. You MUST copy that EXACT logo from the reference photo onto the generated garment — same shape, same size (small, approximately 1 inch), same position. Do NOT invent, redesign, or replace the logo with anything else. If a separate logo image is provided, use that logo instead.`;
+
+  const designBlock = designNotes
+    ? `MANDATORY DESIGN DETAILS — every point below is required in the output:
+${designNotes}
+Do not omit or change any of these details. The generated garment must include all of the above exactly.`
+    : "";
+
+  const changes = feedback ? `\nCHANGES REQUESTED BY USER: ${feedback}` : "";
+
+  if(isFlat) return `Professional product flat lay photography.
+Garment: ${color} ${brand} ${type}
+Pose: ${pose.desc}
+${designBlock}
+${logoInstructions}
+${quality}
+Replicate every design detail from the reference photo exactly. 3:4 portrait aspect ratio.${changes}`;
+
+  if(isDetail) return `Extreme close-up product photography.
+Garment: ${color} ${brand} ${type}
+Focus: ${pose.desc}
+${designBlock}
+${quality}
+Show exact fabric texture, weave structure, stitching precision as in reference. 3:4 portrait.${changes}`;
+
+  return `Professional activewear product photography for marketplace listing.
+
+MODEL: ${modelDesc}. This must be a DIFFERENT person from anyone in the reference photo — different face, different skin tone, different nationality. Professional studio model only.
+
+GARMENT: The model is wearing a ${color} ${brand} ${type}. Replicate this garment from the reference photo with 100% design accuracy:
+${designBlock}
+${logoInstructions}
+
+POSE: ${pose.desc}
+
+TECHNICAL: ${quality}
+
+Full body visible. Model face neutral, confident. Garment is the hero — it must match the reference exactly in fabric, pattern, logo, seams, fit, and length. 3:4 portrait.${changes}`;
 }
 
 
