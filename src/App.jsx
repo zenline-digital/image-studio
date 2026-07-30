@@ -210,6 +210,7 @@ async function toThumbnail(fullImageDataUrl) {
 }
 
   // Use ZenLine Digital's Claude proxy — already working, no extra setup needed
+async function analyzeProductPhoto(base64Image, mime) {
   const r = await fetch("https://zenline-digital.vercel.app/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
