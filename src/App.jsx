@@ -1000,6 +1000,39 @@ export default function App() {
 
         {/* Right main area */}
         <div style={{overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16}}>
+
+          {/* MODE SELECTOR — top of screen, always visible */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div onClick={()=>setMode("generate")} style={{
+              padding:"14px 16px",borderRadius:10,cursor:"pointer",transition:"all 0.2s",
+              border:`2px solid ${mode==="generate"?C.purple:C.border}`,
+              background:mode==="generate"?`${C.purple}20`:C.card,
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:36,height:36,borderRadius:8,background:mode==="generate"?C.purple:`${C.purple}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>🤖</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:mode==="generate"?C.purple:C.text}}>Generate New</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>AI creates with a new model</div>
+                </div>
+                {mode==="generate"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.purple}}/>}
+              </div>
+            </div>
+            <div onClick={()=>setMode("enhance")} style={{
+              padding:"14px 16px",borderRadius:10,cursor:"pointer",transition:"all 0.2s",
+              border:`2px solid ${mode==="enhance"?C.teal:C.border}`,
+              background:mode==="enhance"?`${C.teal}20`:C.card,
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:36,height:36,borderRadius:8,background:mode==="enhance"?C.teal:`${C.teal}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"background 0.2s"}}>✨</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text}}>Enhance Reference</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Clean up your product photos</div>
+                </div>
+                {mode==="enhance"&&<div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:C.teal}}/>}
+              </div>
+            </div>
+          </div>
+
           {/* Pose configuration */}
           <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1034,21 +1067,6 @@ export default function App() {
 
           {/* Generate section */}
           <div style={{background:C.card,borderRadius:10,border:`1px solid ${C.border}`,padding:16}}>
-
-            {/* Mode selector */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
-              <div onClick={()=>setMode("generate")} style={{padding:"12px 14px",borderRadius:9,border:`2px solid ${mode==="generate"?C.purple:C.border}`,background:mode==="generate"?`${C.purple}15`:C.surf,cursor:"pointer",transition:"all 0.2s"}}>
-                <div style={{fontSize:16,marginBottom:4}}>🤖</div>
-                <div style={{fontSize:13,fontWeight:700,color:mode==="generate"?C.purple:C.text,marginBottom:3}}>Generate New</div>
-                <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>AI creates a new image with a new model wearing your product</div>
-              </div>
-              <div onClick={()=>setMode("enhance")} style={{padding:"12px 14px",borderRadius:9,border:`2px solid ${mode==="enhance"?C.teal:C.border}`,background:mode==="enhance"?`${C.teal}15`:C.surf,cursor:"pointer",transition:"all 0.2s"}}>
-                <div style={{fontSize:16,marginBottom:4}}>✨</div>
-                <div style={{fontSize:13,fontWeight:700,color:mode==="enhance"?C.teal:C.text,marginBottom:3}}>Enhance Reference</div>
-                <div style={{fontSize:11,color:C.muted,lineHeight:1.4}}>Takes your uploaded photos — pure white background, sharper, larger. Same product, same model.</div>
-              </div>
-            </div>
-
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:11,color:C.muted}}>
                 {mode==="generate"
