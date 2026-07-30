@@ -6,6 +6,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 const SUPABASE_URL   = "https://ioniqxioapcdgenpksex.supabase.co";
 const GEMINI_MODEL   = "gemini-3.1-flash-lite-image"; // confirmed working model
 const ADMIN_EMAILS   = ["midhun@zenline.ae","midhun@thugfit.ae"]; // add your email here
+// Supabase anon key — set VITE_SUPABASE_ANON_KEY in Vercel env vars (safe to expose, it's public)
+const BUILT_IN_SUPA_KEY = typeof import.meta !== "undefined" && import.meta.env
+  ? (import.meta.env.VITE_SUPABASE_ANON_KEY || "")
+  : "";
 
 // ═══════════════════════════════════════════════════
 //  CONSTANTS — MODELS
@@ -250,6 +254,84 @@ PROHIBITED: Do not change product colors, logos, or design. Must match reference
 }
 
 // ═══════════════════════════════════════════════════
+//  SET PASSWORD SCREEN (invite / password reset flow)
+// ═══════════════════════════════════════════════════
+function SetPasswordScreen({token, supaKey, onDone}) {
+  const [pass, setPass]       = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const [userEmail, setUserEmail] = useState("");
+
+  useEffect(()=>{
+    // Fetch user info from the invite token to show their email
+    if (!supaKey||!token) return;
+    fetch(`${SUPABASE_URL}/auth/v1/user`,{
+      headers:{"apikey":supaKey,"Authorization":`Bearer ${token}`},
+    }).then(r=>r.json()).then(d=>setUserEmail(d.email||"")).catch(()=>{});
+  },[token,supaKey]);
+
+  const submit = async () => {
+    if (pass.length < 8)    { setError("Password must be at least 8 characters"); return; }
+    if (pass !== confirm)   { setError("Passwords don't match"); return; }
+    if (!supaKey)           { setError("Missing Supabase key — contact admin"); return; }
+    setLoading(true); setError("");
+    try {
+      // Set the new password using the invite access token
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`,{
+        method:"PUT",
+        headers:{"Content-Type":"application/json","apikey":supaKey,"Authorization":`Bearer ${token}`},
+        body: JSON.stringify({password:pass}),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(()=>({}));
+        throw new Error(e.message||"Failed to set password");
+      }
+      const userData = await res.json();
+      // Clear invite params from URL so page reload shows login
+      window.history.replaceState(null,"",window.location.pathname);
+      onDone({token, user:userData});
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0d0d16",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif"}}>
+      <div style={{width:400,background:"#09090f",border:"1px solid #1a1a2e",borderRadius:16,padding:36}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{width:52,height:52,background:"linear-gradient(135deg,#7c3aed,#2563eb)",borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 14px"}}>🎉</div>
+          <div style={{fontWeight:800,fontSize:20,color:"#f1f5f9"}}>You've been invited!</div>
+          <div style={{fontSize:12,color:"#3a3a5c",marginTop:4}}>Image Studio · THUGFIT</div>
+          {userEmail&&<div style={{fontSize:13,color:"#64748b",marginTop:8,background:"#13131f",border:"1px solid #1a1a2e",borderRadius:6,padding:"5px 12px",display:"inline-block"}}>{userEmail}</div>}
+        </div>
+
+        <div style={{fontSize:13,color:"#4a4a6a",textAlign:"center",marginBottom:22}}>Set your password to activate your account.</div>
+
+        {error&&<div style={{background:"#ef444415",border:"1px solid #ef444430",color:"#fca5a5",padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:14}}>⚠ {error}</div>}
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>New Password</div>
+          <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Minimum 8 characters"
+            style={{width:"100%",background:"#0d0d16",border:"1px solid #1a1a2e",color:"#e2e8f0",padding:"11px 14px",borderRadius:8,fontSize:14,outline:"none"}}
+            onKeyDown={e=>e.key==="Enter"&&submit()}/>
+        </div>
+        <div style={{marginBottom:24}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Confirm Password</div>
+          <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Re-enter password"
+            style={{width:"100%",background:"#0d0d16",border:"1px solid #1a1a2e",color:"#e2e8f0",padding:"11px 14px",borderRadius:8,fontSize:14,outline:"none"}}
+            onKeyDown={e=>e.key==="Enter"&&submit()}/>
+        </div>
+
+        <button onClick={submit} disabled={loading}
+          style={{width:"100%",padding:"13px 0",borderRadius:9,border:"none",cursor:loading?"not-allowed":"pointer",fontSize:15,fontWeight:800,background:loading?"#1a1a2e":"linear-gradient(135deg,#7c3aed,#2563eb)",color:loading?"#2a2a40":"#fff"}}>
+          {loading?"Setting up account…":"Activate Account →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════
 //  LOGIN SCREEN
 // ═══════════════════════════════════════════════════
 function LoginScreen({onLogin}) {
@@ -257,7 +339,7 @@ function LoginScreen({onLogin}) {
   const [pass,setPass]=useState("");
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
-  const [supaKey,setSupaKey]=useState(()=>localStorage.getItem("is_supa_key")||"");
+  const [supaKey,setSupaKey]=useState(()=>BUILT_IN_SUPA_KEY||localStorage.getItem("is_supa_key")||"");
   const [showKeyInput,setShowKeyInput]=useState(!localStorage.getItem("is_supa_key"));
 
   const doLogin = async () => {
@@ -335,7 +417,8 @@ export default function App() {
   const [session, setSession] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("is_supa_session")||"null"); } catch { return null; }
   });
-  const [supaKey, setSupaKey] = useState(()=>localStorage.getItem("is_supa_key")||"");
+  const [supaKey, setSupaKey] = useState(()=>BUILT_IN_SUPA_KEY||localStorage.getItem("is_supa_key")||"");
+  const [inviteData, setInviteData] = useState(null); // {token, type} from invite URL
   const isAdmin = ADMIN_EMAILS.includes(session?.user?.email||"");
 
   const handleLogin = ({token,user,supaKey:k}) => {
@@ -347,6 +430,34 @@ export default function App() {
     localStorage.removeItem("is_supa_session");
     setSession(null);
   };
+
+  // ── Detect invite/reset tokens in URL on mount ───
+  useEffect(()=>{
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const qp   = new URLSearchParams(window.location.search);
+    // Hash-based flow (older Supabase): /#access_token=...&type=invite
+    const hashToken = hash.get("access_token");
+    const hashType  = hash.get("type");
+    // PKCE query-param flow (newer): /?token_hash=...&type=invite
+    const pkceHash  = qp.get("token_hash");
+    const pkceType  = qp.get("type");
+
+    if (hashToken && (hashType==="invite"||hashType==="recovery")) {
+      setInviteData({token:hashToken}); return;
+    }
+    if (pkceHash && (pkceType==="invite"||pkceType==="recovery")) {
+      // Exchange token_hash for access_token
+      const k = BUILT_IN_SUPA_KEY||localStorage.getItem("is_supa_key")||"";
+      if (!k) return;
+      fetch(`${SUPABASE_URL}/auth/v1/verify`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json","apikey":k},
+        body:JSON.stringify({token_hash:pkceHash,type:pkceType}),
+      }).then(r=>r.json()).then(d=>{
+        if (d.access_token) { setInviteData({token:d.access_token}); window.history.replaceState(null,"",window.location.pathname); }
+      }).catch(()=>{});
+    }
+  },[]);
 
   // ── API Keys ──────────────────────────────────
   const [geminiKey, setGeminiKey] = useState(()=>localStorage.getItem("is_gemini_key")||"");
@@ -548,7 +659,18 @@ export default function App() {
   const slotBorder = s=>s.status==="done"?"#16a34a30":s.status==="error"?"#ef444430":s.status==="generating"?"#7c3aed60":"#1a1a2e";
   const slotBg     = s=>s.status==="done"?"#0a1a0a":s.status==="error"?"#1a0a0a":s.status==="generating"?"#0a0a1a":"#0a0a12";
 
-  // ── Not logged in ─────────────────────────────
+  // ── Not logged in / invite flow ────────────────────
+  if (inviteData) return (
+    <SetPasswordScreen
+      token={inviteData.token}
+      supaKey={supaKey||BUILT_IN_SUPA_KEY||localStorage.getItem("is_supa_key")||""}
+      onDone={({token,user})=>{
+        const sess={access_token:token,user};
+        localStorage.setItem("is_supa_session",JSON.stringify(sess));
+        setSession(sess); setInviteData(null);
+      }}
+    />
+  );
   if (!session) return <LoginScreen onLogin={handleLogin}/>;
 
   // ═══════════════════════════════════════════════
