@@ -506,26 +506,33 @@ export default function App() {
   useEffect(() => { loadGallery(); }, []);
 
   async function loadGallery() {
-    // Try Supabase first (shared gallery)
-    try {
-      const rows = await supaGalleryLoad();
-      // If Supabase returns error object or non-array, fall through to IndexedDB
-      if (!Array.isArray(rows)) throw new Error("Supabase table missing — run SQL in settings");
-      setGallery(rows);
-      return;
-    } catch(e) {
-      console.log("Supabase gallery failed, loading from local:", e.message);
-    }
-    // Fallback: local IndexedDB
+    // PRIMARY: Always load from IndexedDB first (always works, no SQL needed)
     try {
       const local = await dbGetAll();
-      if (Array.isArray(local)) setGallery(local);
+      if (Array.isArray(local) && local.length > 0) {
+        setGallery(local);
+      }
     } catch(e) {
-      console.log("IndexedDB also failed:", e.message);
+      console.log("IndexedDB load failed:", e.message);
+    }
+    // SECONDARY: Also try Supabase to get items from other team members
+    try {
+      const rows = await supaGalleryLoad();
+      if (Array.isArray(rows) && rows.length > 0) {
+        // Merge with local — add Supabase items not already in IndexedDB
+        setGallery(prev => {
+          const existingFilenames = new Set(prev.map(x => x.filename));
+          const newFromSupabase = rows.filter(r => !existingFilenames.has(r.filename));
+          return [...prev, ...newFromSupabase];
+        });
+      }
+    } catch(e) {
+      // Supabase is optional — silently ignore
     }
   }
 
   async function saveToGallery(imageData, slotIndex, pose) {
+    if (!imageData) return;
     const thumbnail = await toThumbnail(imageData);
     const record = {
       product_name: product.name || "Unnamed",
@@ -535,24 +542,28 @@ export default function App() {
       gender: product.gender,
       pose_name: pose?.name || "Unknown",
       pose_category: pose?.category || "",
-      thumbnail, // compressed ~10KB for sharing
+      thumbnail,
       filename: `${(product.name||"product").replace(/\s+/g,"_")}_${slotIndex+1}_${(pose?.name||"image").replace(/\s+/g,"_")}.jpg`,
-      full_image: imageData, // full res stored locally only via IndexedDB
+      full_image: imageData,
       created_at: new Date().toISOString()
     };
-    // Save thumbnail to Supabase (visible to all team members)
+
+    // ALWAYS save to IndexedDB first (primary, never fails)
+    let savedId = null;
     try {
-      const saved = await supaGallerySave({ ...record, full_image: null });
-      const id = saved?.[0]?.id;
-      // Save full image locally
-      await dbSave({ ...record, id });
-      setGallery(prev => [{ ...record, id }, ...prev]);
+      savedId = await dbSave(record);
     } catch(e) {
-      // Fallback: local only
-      try {
-        const id = await dbSave(record);
-        setGallery(prev => [{ ...record, id }, ...prev]);
-      } catch {}
+      console.log("IndexedDB save failed:", e.message);
+    }
+
+    // Update gallery state immediately
+    setGallery(prev => [{ ...record, id: savedId }, ...prev]);
+
+    // ALSO try Supabase (secondary, for team sharing) — non-blocking
+    try {
+      await supaGallerySave({ ...record, full_image: null });
+    } catch(e) {
+      // Supabase is optional — no error shown
     }
   }
 
