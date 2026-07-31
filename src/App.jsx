@@ -243,46 +243,49 @@ function buildThumbPrompt(m) {
 
 function buildSlotPrompt(model, garmentType, pose, imgs) {
   const hasBack=!!imgs.back, hasSide=!!imgs.side, hasDetail=!!imgs.detail;
-  const refs=[
-    "• Image 1 = FRONT VIEW (front design, logo, neckline, sleeve details)",
-    hasBack&&"• Image 2 = BACK VIEW (back panel, rear seams, any back logo/text)",
-    hasSide&&`• Image ${hasBack?3:2} = SIDE VIEW (side seams, profile)`,
-    hasDetail&&`• Image ${1+(hasBack?1:0)+(hasSide?1:0)+1} = DETAIL/CLOSE-UP (fabric texture, logo)`,
-  ].filter(Boolean).join("\n");
+
   const poseRef = pose.id==="back_view"
-    ? (hasBack?"USE IMAGE 2 (BACK VIEW) as primary reference for the back of this garment.":"No back photo provided — infer back from front reference.")
+    ? (hasBack?"For the garment back, refer to REFERENCE IMAGE 2 (BACK VIEW).":"No back photo — infer back design from the front reference.")
     : pose.id==="side_profile"
-      ? (hasSide?"USE SIDE VIEW reference as primary.":"Use front and infer side profile.")
+      ? (hasSide?"For the side view, use the SIDE VIEW reference.":"Infer the side profile from the front reference.")
       : pose.id==="fabric_macro"
-        ? (hasDetail?"USE DETAIL/CLOSE-UP reference to show fabric texture.":"Use any available reference.")
-        : "USE IMAGE 1 (FRONT VIEW) as primary reference.";
+        ? (hasDetail?"For fabric texture, use the DETAIL/CLOSE-UP reference.":"Use any reference showing fabric texture best.")
+        : "For the garment front, refer to REFERENCE IMAGE 1 (FRONT VIEW).";
 
-  return `You are a professional activewear product photographer.
+  const comment = "";
+  return `You are a professional activewear product photographer performing a MODEL SWAP.
 
-TASK: Reference photos of a ${garmentType} are attached. Create a high-quality studio product photo of this EXACT ${garmentType} worn by a fitness model.
+REFERENCE IMAGES ATTACHED: These show a ${garmentType} worn by someone.
+These images exist ONLY so you can study the garment. The person in the reference is a placeholder.
 
-REFERENCE IMAGES IN THIS REQUEST:
-${refs}
+STEP 1 — STUDY THE GARMENT ONLY (ignore the person in the photo):
+Extract these garment details from the reference:
+• Exact colors and color placement
+• Exact logo, brand text, graphics, prints
+• Exact cut: neckline, sleeve length, hem, silhouette
+• Exact fabric texture, material, seams, stitching, mesh panels
+• Exact fit and proportions
 
-PRESERVE PRODUCT EXACTLY — CRITICAL:
-• Same colors — do not alter any color
-• Same logo, text, graphics — pixel-perfect accuracy
-• Same neckline, sleeve length, cut, and silhouette
-• Same fabric texture, seams, stitching, mesh panels, material finish
-• Same fit — do not make tighter, looser, shorter, or longer
+STEP 2 — COMPLETELY REMOVE THE REFERENCE MODEL:
+The person visible in the reference image(s) must be ENTIRELY REPLACED.
+Do NOT keep their face, skin color, hair, body type, or any physical feature.
+The reference person does not appear in your output at all.
 
-FOR THIS SHOT ("${pose.name}"): ${poseRef}
+STEP 3 — USE THIS NEW MODEL INSTEAD:
+${model.desc}
+This is the only model in your output. They look completely different from whoever was in the reference photos.
 
-MODEL: ${model.desc}. Physically fit, confident, professional activewear model.
-POSE: ${pose.desc}
+POSE: "${pose.name}" — ${pose.desc}
+GARMENT REFERENCE: ${poseRef}
 
-OUTPUT:
-• Background: pure white (#FFFFFF) — zero shadows on background
-• Lighting: even professional softbox studio — no harsh directional shadows on garment
-• Sharp focus, commercially print-ready, clean activewear catalogue
-• ${garmentType} must be the clear focal point
+OUTPUT REQUIREMENTS:
+• Pure white background (#FFFFFF) — no shadows on background
+• Even professional softbox studio lighting
+• Full body or 3/4 body shot — complete ${garmentType} visible
+• Sharp, commercial activewear catalogue quality
+• Garment design IDENTICAL to reference images
 
-PROHIBITED: Do not change product colors, logos, or design. Must match references exactly.`;
+DO NOT use the original reference model. DO use: ${model.desc}.`;
 }
 
 // ═══════════════════════════════════════════════════
