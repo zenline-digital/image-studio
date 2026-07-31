@@ -245,47 +245,42 @@ function buildSlotPrompt(model, garmentType, pose, imgs) {
   const hasBack=!!imgs.back, hasSide=!!imgs.side, hasDetail=!!imgs.detail;
 
   const poseRef = pose.id==="back_view"
-    ? (hasBack?"For the garment back, refer to REFERENCE IMAGE 2 (BACK VIEW).":"No back photo — infer back design from the front reference.")
+    ? (hasBack?"Refer to REFERENCE IMAGE 2 (BACK VIEW) for the back of the garment.":"No back photo provided — infer back design from the front reference.")
     : pose.id==="side_profile"
-      ? (hasSide?"For the side view, use the SIDE VIEW reference.":"Infer the side profile from the front reference.")
+      ? (hasSide?"Refer to the SIDE VIEW reference for the garment side.":"Infer the side profile from the front reference.")
       : pose.id==="fabric_macro"
-        ? (hasDetail?"For fabric texture, use the DETAIL/CLOSE-UP reference.":"Use any reference showing fabric texture best.")
-        : "For the garment front, refer to REFERENCE IMAGE 1 (FRONT VIEW).";
+        ? (hasDetail?"Refer to the DETAIL/CLOSE-UP reference for fabric texture.":"Use any reference showing fabric texture best.")
+        : "Refer to REFERENCE IMAGE 1 (FRONT VIEW) for the front of the garment.";
 
-  const comment = "";
-  return `You are a professional activewear product photographer performing a MODEL SWAP.
+  return `TASK: Create a new professional product photo. A ${garmentType} reference image is attached.
 
-REFERENCE IMAGES ATTACHED: These show a ${garmentType} worn by someone.
-These images exist ONLY so you can study the garment. The person in the reference is a placeholder.
+═══ THE MODEL IN THE REFERENCE IMAGE IS NOT THE MODEL TO USE ═══
+The reference photo was taken with a placeholder model for product documentation only.
+That person must be 100% replaced. Their appearance — skin colour, face, hair, body — must not appear anywhere in your output.
 
-STEP 1 — STUDY THE GARMENT ONLY (ignore the person in the photo):
-Extract these garment details from the reference:
-• Exact colors and color placement
-• Exact logo, brand text, graphics, prints
-• Exact cut: neckline, sleeve length, hem, silhouette
-• Exact fabric texture, material, seams, stitching, mesh panels
-• Exact fit and proportions
-
-STEP 2 — COMPLETELY REMOVE THE REFERENCE MODEL:
-The person visible in the reference image(s) must be ENTIRELY REPLACED.
-Do NOT keep their face, skin color, hair, body type, or any physical feature.
-The reference person does not appear in your output at all.
-
-STEP 3 — USE THIS NEW MODEL INSTEAD:
+═══ THE MODEL YOU MUST USE IS: ═══
 ${model.desc}
-This is the only model in your output. They look completely different from whoever was in the reference photos.
+Generate this exact person. They are completely different from whoever is in the reference photos.
+If your output does not match this description, it is WRONG.
 
-POSE: "${pose.name}" — ${pose.desc}
-GARMENT REFERENCE: ${poseRef}
+═══ WHAT TO KEEP FROM THE REFERENCE (garment only): ═══
+Study the ${garmentType} in the reference carefully:
+• Exact colours and colour placement — do not change any colour
+• Exact logo, text, graphics, prints — pixel-perfect match
+• Exact cut: neckline, sleeve length, hem, overall silhouette
+• Exact fabric texture, material, mesh panels, seams, stitching
+• Exact fit proportions — do not alter the garment in any way
+${poseRef}
 
-OUTPUT REQUIREMENTS:
-• Pure white background (#FFFFFF) — no shadows on background
-• Even professional softbox studio lighting
+═══ OUTPUT: ═══
+• Model: ${model.desc} (the ONLY person in this image)
+• Pose: ${pose.name} — ${pose.desc}
+• Background: pure white (#FFFFFF), no shadows
+• Lighting: even professional softbox studio lighting
 • Full body or 3/4 body shot — complete ${garmentType} visible
-• Sharp, commercial activewear catalogue quality
-• Garment design IDENTICAL to reference images
+• Sharp, commercial activewear photography quality
 
-DO NOT use the original reference model. DO use: ${model.desc}.`;
+FINAL REMINDER: The output must show ${model.desc.split(',').slice(0,3).join(',')} — NOT the person from the reference image.`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -639,7 +634,13 @@ export default function App() {
     models.filter(m=>!thumbs[m.id]&&!thumbLoading[m.id]).forEach(generateThumb);
   },[showGallery,galleryTab]); // eslint-disable-line
 
-  const selectModel = m=>{ setSelectedModel(m); setShowGallery(false); };
+  const selectModel = m=>{
+    setSelectedModel(m);
+    setShowGallery(false);
+    // Clear all generated images so user doesn't see old model's images
+    resetSlots();
+    setSlotComments(Array(8).fill(""));
+  };
   const switchGender = g=>{ setGender(g); if(selectedModel&&selectedModel.id[0]!==g[0])setSelectedModel(null); };
   const openGallery  = ()=>{ setGalleryTab(gender); setShowGallery(true); };
   const changePose   = (i,pose)=>{ setSlots(prev=>prev.map((s,j)=>j===i?{...s,pose,image:null,status:"idle",error:null}:s)); setActivePoseSlot(null); };
