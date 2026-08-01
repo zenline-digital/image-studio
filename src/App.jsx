@@ -149,9 +149,15 @@ async function canvasResize(dataURL, w, h, quality=0.95, bg="#FFFFFF") {
     img.onload=()=>{
       const c=document.createElement("canvas"); c.width=w; c.height=h;
       const ctx=c.getContext("2d"); ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
-      const ratio=Math.min(w/img.width,h/img.height);
-      const sw=Math.round(img.width*ratio),sh=Math.round(img.height*ratio);
-      ctx.drawImage(img,(w-sw)/2,(h-sh)/2,sw,sh);
+      // COVER mode: scale so the image fills the ENTIRE canvas
+      // Any overflow is cropped from center — model fills full portrait space
+      const ratio=Math.max(w/img.width, h/img.height);
+      const sw=Math.round(img.width*ratio);
+      const sh=Math.round(img.height*ratio);
+      // Center the image so overflow is cropped equally from all sides
+      const ox=Math.round((w-sw)/2);
+      const oy=Math.round((h-sh)/2);
+      ctx.drawImage(img,ox,oy,sw,sh);
       resolve(c.toDataURL("image/jpeg",quality));
     };
     img.onerror=()=>resolve(dataURL);
@@ -212,6 +218,56 @@ async function resizeSquare(dataURL, size=280) {
 }
 
 async function resizeForGallery(dataURL) { return canvasResize(dataURL,600,800,0.78); }
+
+// Post-process every generated image: flood-fill background from edges → pure white
+async function ensureWhiteBackground(dataURL) {
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement("canvas");
+      c.width=img.width; c.height=img.height;
+      const ctx=c.getContext("2d");
+      ctx.fillStyle="#FFFFFF";
+      ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,0,0);
+      const id=ctx.getImageData(0,0,c.width,c.height);
+      const d=id.data;
+      // Sample 12 edge points to detect background colour
+      const pts=[
+        [4,4],[c.width-4,4],[4,c.height-4],[c.width-4,c.height-4],
+        [Math.floor(c.width/2),4],[Math.floor(c.width/2),c.height-4],
+        [4,Math.floor(c.height/2)],[c.width-4,Math.floor(c.height/2)],
+        [Math.floor(c.width/4),4],[Math.floor(c.width*3/4),4],
+        [Math.floor(c.width/4),c.height-4],[Math.floor(c.width*3/4),c.height-4],
+      ];
+      const smp=pts.map(([x,y])=>{const i=(Math.floor(y)*c.width+Math.floor(x))*4;return[d[i],d[i+1],d[i+2]];});
+      const bgR=Math.round(smp.reduce((s,v)=>s+v[0],0)/smp.length);
+      const bgG=Math.round(smp.reduce((s,v)=>s+v[1],0)/smp.length);
+      const bgB=Math.round(smp.reduce((s,v)=>s+v[2],0)/smp.length);
+      // Flood fill from all edges with generous threshold (catches grey/off-white/light gradients)
+      const vis=new Uint8Array(c.width*c.height);
+      const q=[];
+      for(let x=0;x<c.width;x++){q.push([x,0]);q.push([x,c.height-1]);}
+      for(let y=1;y<c.height-1;y++){q.push([0,y]);q.push([c.width-1,y]);}
+      const thresh=60; // generous — catches grey/cream/off-white backgrounds
+      while(q.length){
+        const[x,y]=q.pop();
+        if(x<0||x>=c.width||y<0||y>=c.height) continue;
+        const idx=y*c.width+x;
+        if(vis[idx]) continue;
+        vis[idx]=1;
+        const pi=idx*4;
+        if(Math.abs(d[pi]-bgR)+Math.abs(d[pi+1]-bgG)+Math.abs(d[pi+2]-bgB)>thresh*3) continue;
+        d[pi]=255;d[pi+1]=255;d[pi+2]=255;d[pi+3]=255;
+        q.push([x-1,y],[x+1,y],[x,y-1],[x,y+1]);
+      }
+      ctx.putImageData(id,0,0);
+      resolve(c.toDataURL("image/jpeg",0.97));
+    };
+    img.onerror=()=>resolve(dataURL);
+    img.src=dataURL;
+  });
+}
 
 // Canvas upscale — multiplies pixel dimensions (1.5x or 2x) with high-quality smoothing
 async function upscaleImage(dataURL, factor) {
@@ -665,7 +721,9 @@ export default function App() {
       parts.push({text:fullPrompt});
       const img=await callGemini(geminiKey,parts,0.2);
       const raw=`data:${img.mimeType};base64,${img.data}`;
-      const processed=await canvasResize(raw,outSize.w,outSize.h,0.95);
+      // Post-process: strip off-white/grey background → pure white, then resize to output spec
+      const whitened=await ensureWhiteBackground(raw);
+      const processed=await canvasResize(whitened,outSize.w,outSize.h,0.95);
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",image:processed,error:null}:s));
       setTotalGenerated(n=>{ const next=n+1; localStorage.setItem("is_total_gen",String(next)); return next; });
       // Auto-save to shared gallery
@@ -697,7 +755,9 @@ export default function App() {
         {text:"You are a professional photo retoucher. Enhance the quality of this product photography image: sharpen details, improve lighting clarity, make colours more accurate and vivid, increase overall sharpness and professional finish. The product, model, pose, and white background must stay EXACTLY the same — only improve the visual quality and sharpness."},
       ],0.15);
       const raw=`data:${img.mimeType};base64,${img.data}`;
-      const processed=await canvasResize(raw,outSize.w,outSize.h,0.95);
+      // Post-process: strip off-white/grey background → pure white, then resize to output spec
+      const whitened=await ensureWhiteBackground(raw);
+      const processed=await canvasResize(whitened,outSize.w,outSize.h,0.95);
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",image:processed,error:null}:s));
       saveImageToGallery(processed,{modelName:selectedModel?.name,modelTag:selectedModel?.tag,garmentType,poseName:slot.pose.name,gender});
     } catch(e) {
@@ -731,6 +791,7 @@ export default function App() {
         out=await canvasResize(`data:${img.mimeType};base64,${img.data}`,outSize.w,outSize.h,0.95);
       } else {
         out=await canvasEnhance(refImages.front.preview,outSize.w,outSize.h,0.95);
+        out=await ensureWhiteBackground(out); // extra pass to guarantee white
       }
       setEnhancedImage(out);
       saveImageToGallery(out,{modelName:"Enhanced",garmentType,poseName:"Enhanced Ref",gender});
