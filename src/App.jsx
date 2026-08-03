@@ -219,9 +219,9 @@ async function resizeSquare(dataURL, size=280) {
 
 async function resizeForGallery(dataURL) { return canvasResize(dataURL,600,800,0.78); }
 
-// Safe background cleaner — pixel-by-pixel, only touches near-white pixels
-// Will NOT bleed into skin, hair, or clothing of any tone
-async function gentleWhiteBackground(dataURL) {
+// Simple near-white cleanup — safety net for minor imperfections only
+// Only touches pixels where ALL channels > 235 (cannot affect skin or clothing)
+async function cleanNearWhite(dataURL) {
   return new Promise(resolve=>{
     const img=new Image();
     img.onload=()=>{
@@ -233,12 +233,10 @@ async function gentleWhiteBackground(dataURL) {
       ctx.drawImage(img,0,0);
       const id=ctx.getImageData(0,0,c.width,c.height);
       const d=id.data;
-      // Only replace pixels where ALL THREE channels are above 228
-      // This safely catches off-white/grey/cream backgrounds
-      // without touching skin (even very fair skin has at least one channel below 225)
-      // or light clothing (light grey, beige, etc. have channels below 225)
       for(let i=0;i<d.length;i+=4){
-        if(d[i]>228 && d[i+1]>228 && d[i+2]>228){
+        // Only replaces pixels that are already very close to white
+        // Skin, hair, and clothing are never this bright on all 3 channels
+        if(d[i]>235 && d[i+1]>235 && d[i+2]>235){
           d[i]=255; d[i+1]=255; d[i+2]=255;
         }
       }
@@ -281,52 +279,54 @@ function buildThumbPrompt(m) {
 function buildSlotPrompt(model, garmentType, pose, imgs) {
   const hasBack=!!imgs.back, hasSide=!!imgs.side, hasDetail=!!imgs.detail;
   const poseRef = pose.id==="back_view"
-    ? (hasBack?"Refer to REFERENCE IMAGE 2 (BACK VIEW) for the back of the garment.":"No back photo — infer back design from the front reference.")
+    ? (hasBack?"Use REFERENCE IMAGE 2 (BACK VIEW) for the back of the garment.":"No back photo — infer back design from the front.")
     : pose.id==="side_profile"
-      ? (hasSide?"Refer to the SIDE VIEW reference for the garment side.":"Infer the side profile from the front reference.")
+      ? (hasSide?"Use the SIDE VIEW reference for the garment side.":"Infer side profile from the front reference.")
       : pose.id==="fabric_macro"
-        ? (hasDetail?"Refer to the DETAIL/CLOSE-UP reference for fabric texture.":"Use any reference showing fabric texture best.")
-        : "Refer to REFERENCE IMAGE 1 (FRONT VIEW) for the front of the garment.";
+        ? (hasDetail?"Use the DETAIL/CLOSE-UP reference for fabric texture.":"Use whichever reference shows fabric texture best.")
+        : "Use REFERENCE IMAGE 1 (FRONT VIEW) for the front of the garment.";
 
-  return `You are a commercial activewear product photographer. Your task has two parts:
-PART A — extract garment details from the reference photo.
-PART B — generate a new studio photo using those garment details on a completely different model.
+  return `BACKGROUND: PURE WHITE #FFFFFF — this is the most important requirement.
+The output image must have a completely flat, pure white background with zero colour, zero tint, zero gradient, zero shadow. White like a professional seamless paper backdrop in a photo studio.
+IMPORTANT: The reference photos attached may have coloured, grey, or gradient backgrounds. Ignore those backgrounds entirely — they are irrelevant. The output background is always pure white #FFFFFF.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART A — STUDY THE GARMENT IN THE REFERENCE IMAGE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Look at the attached reference photo and memorise every detail of the ${garmentType}:
-• Exact colours — primary, secondary, accent colours and their exact placement
-• Exact branding — any logo, text, label, print, pattern — pixel-perfect
-• Exact cut — neckline shape, strap style, sleeve length, hem line, waistband
-• Exact fabric — texture, sheen, mesh sections, ribbing, seams, stitching
-• Exact proportions and fit
+───────────────────────────────────────
+TASK: Create a professional activewear product photo.
+───────────────────────────────────────
 
-Ignore the person in the reference photo entirely. They are not relevant.
+STEP 1 — READ THE GARMENT FROM THE REFERENCE IMAGES:
+The attached photos show a ${garmentType}. Study only the garment:
+• Exact colours and colour placement
+• Exact logo, branding, text, prints — replicate precisely
+• Exact cut: neckline, strap width, sleeve length, hem shape, waistband
+• Exact fabric: texture, sheen, mesh panels, ribbing, seams, stitching
+• Exact fit and proportions
 ${poseRef}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART B — GENERATE THE NEW PRODUCT PHOTO
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Create a brand new high-quality product photo with:
+STEP 2 — IGNORE EVERYTHING ELSE IN THE REFERENCE:
+• Ignore the background in the reference photos
+• Ignore the model/person in the reference photos
+• Ignore the lighting setup in the reference photos
+Only the garment details matter.
 
-MODEL (this is the only person in the image):
-${model.desc}
-This person has zero resemblance to whoever appeared in the reference photo.
+STEP 3 — GENERATE THE PHOTO:
+Model: ${model.desc}
+This model is completely different from any person in the reference photos.
 
-GARMENT:
-The exact ${garmentType} you studied in Part A — same colours, same logo, same cut, same fabric, same fit. Nothing about the garment is changed or "improved".
+Garment: The exact ${garmentType} from Step 1 — identical colours, logo, cut, fabric. Unchanged.
 
-POSE: ${pose.name}
-${pose.desc}
+Pose: ${pose.name} — ${pose.desc}
 
-TECHNICAL REQUIREMENTS:
-• Background: pure studio white — #FFFFFF, flat, no shadows, no gradient, no colour cast
-• Lighting: professional softbox — even exposure, no overexposure, natural skin tones
-• Composition: full body or 3/4 shot, model centred, complete garment visible
+Output requirements:
+• Background: PURE WHITE #FFFFFF — flat, no shadow, no tint, no gradient
+• Lighting: even professional studio softbox — correct exposure, natural skin tones, not overexposed
+• Composition: full body or 3/4 shot, complete garment visible, model centred
 • Quality: sharp, clean, commercial catalogue standard
 
-The output shows ${model.desc.split(",").slice(0,3).join(",")} wearing the exact ${garmentType} from the reference.`;
+FINAL CHECK — before generating, confirm:
+✓ Background is pure white #FFFFFF (not pink, not cream, not grey, not gradient)
+✓ Model matches: ${model.desc.split(",").slice(0,3).join(",")}
+✓ Garment is identical to the reference images`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -714,7 +714,7 @@ export default function App() {
       // Step 1: resize to output spec (cover mode — fills full canvas)
       const resized=await canvasResize(raw,outSize.w,outSize.h,0.95);
       // Step 2: safe background cleanup — only touches near-white pixels, won't harm model
-      const processed=await gentleWhiteBackground(resized);
+      const processed=await cleanNearWhite(resized);
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",image:processed,error:null}:s));
       setTotalGenerated(n=>{ const next=n+1; localStorage.setItem("is_total_gen",String(next)); return next; });
       // Auto-save to shared gallery
@@ -747,7 +747,7 @@ export default function App() {
       ],0.15);
       const raw=`data:${img.mimeType};base64,${img.data}`;
       const resized=await canvasResize(raw,outSize.w,outSize.h,0.95);
-      const processed=await gentleWhiteBackground(resized);
+      const processed=await cleanNearWhite(resized);
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",image:processed,error:null}:s));
       saveImageToGallery(processed,{modelName:selectedModel?.name,modelTag:selectedModel?.tag,garmentType,poseName:slot.pose.name,gender});
     } catch(e) {
