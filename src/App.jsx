@@ -149,12 +149,11 @@ async function canvasResize(dataURL, w, h, quality=0.95, bg="#FFFFFF") {
     img.onload=()=>{
       const c=document.createElement("canvas"); c.width=w; c.height=h;
       const ctx=c.getContext("2d"); ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
-      // COVER mode: scale so the image fills the ENTIRE canvas
-      // Any overflow is cropped from center — model fills full portrait space
-      const ratio=Math.max(w/img.width, h/img.height);
+      // CONTAIN mode: fit entire image — no cropping, white padding on sides
+      const ratio=Math.min(w/img.width, h/img.height);
       const sw=Math.round(img.width*ratio);
       const sh=Math.round(img.height*ratio);
-      // Center the image so overflow is cropped equally from all sides
+      // Center the image with equal padding on all sides
       const ox=Math.round((w-sw)/2);
       const oy=Math.round((h-sh)/2);
       ctx.drawImage(img,ox,oy,sw,sh);
@@ -236,7 +235,8 @@ async function cleanNearWhite(dataURL) {
       for(let i=0;i<d.length;i+=4){
         // Only replaces pixels that are already very close to white
         // Skin, hair, and clothing are never this bright on all 3 channels
-        if(d[i]>235 && d[i+1]>235 && d[i+2]>235){
+        // Threshold 220 catches off-white, cream, light grey Gemini generates
+        if(d[i]>220 && d[i+1]>220 && d[i+2]>220){
           d[i]=255; d[i+1]=255; d[i+2]=255;
         }
       }
@@ -276,7 +276,7 @@ function buildThumbPrompt(m) {
   return `Professional fitness model portrait. ${m.desc}. Wearing plain white fitted athletic top. Waist-up shot looking directly at camera. Pure white background. Even studio lighting. High quality commercial photography. No text, no watermarks.`;
 }
 
-function buildSlotPrompt(model, garmentType, pose, imgs) {
+function buildSlotPrompt(model, garmentType, pose, imgs, logoNote="") {
   const hasBack=!!imgs.back, hasSide=!!imgs.side, hasDetail=!!imgs.detail;
   const poseRef = pose.id==="back_view"
     ? (hasBack?"Use REFERENCE IMAGE 2 (BACK VIEW) for the back of the garment.":"No back photo — infer back design from the front.")
@@ -298,6 +298,7 @@ STEP 1 — READ THE GARMENT FROM THE REFERENCE IMAGES:
 The attached photos show a ${garmentType}. Study only the garment:
 • Exact colours and colour placement
 • Exact logo, branding, text, prints — replicate precisely
+${logoNote ? `• LOGO INSTRUCTION: ${logoNote}` : "• If the reference product has a logo or brand text, replicate it precisely. If no logo is visible in the reference, add a very small THUGFIT text logo (subtle, small, around 4% of garment width) on the chest or left sleeve area."}
 • Exact cut: neckline, strap width, sleeve length, hem shape, waistband
 • Exact fabric: texture, sheen, mesh panels, ribbing, seams, stitching
 • Exact fit and proportions
@@ -326,7 +327,7 @@ Output requirements:
 FINAL CHECK — before generating, confirm:
 ✓ Background is pure white #FFFFFF (not pink, not cream, not grey, not gradient)
 ✓ Model matches: ${model.desc.split(",").slice(0,3).join(",")}
-✓ Garment is identical to the reference images`;
+✓ Garment is identical to the reference images${logoNote ? `\n✓ ${logoNote}` : ""}\`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -558,6 +559,8 @@ export default function App() {
 
   // ── API Keys ──────────────────────────────────
   const [geminiKey, setGeminiKey] = useState(()=>localStorage.getItem("is_gemini_key")||"");
+  const [diagStatus, setDiagStatus] = useState(null); // null | "testing" | "ok" | "error"
+  const [diagMsg, setDiagMsg] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [tempGemini, setTempGemini]   = useState("");
   const [tempSupa, setTempSupa]       = useState("");
@@ -572,6 +575,7 @@ export default function App() {
 
   // ── Product Inputs ────────────────────────────
   const [refImages, setRefImages] = useState({front:null,back:null,side:null,detail:null});
+  const [logoImage, setLogoImage] = useState(null); // THUGFIT logo for overlay
   const [garmentType, setGarmentType] = useState("T-Shirt");
   const [gender, setGender] = useState("female");
   const [selectedModel, setSelectedModel] = useState(null);
@@ -704,7 +708,11 @@ export default function App() {
       if(refImages.side) {parts.push({inlineData:{mimeType:refImages.side.mime, data:refImages.side.data}});parts.push({text:"[REFERENCE IMAGE 3 — SIDE VIEW]"});}
       if(refImages.detail){parts.push({inlineData:{mimeType:refImages.detail.mime,data:refImages.detail.data}});parts.push({text:"[REFERENCE IMAGE 4 — DETAIL]"});}
       const comment = slotComments[idx]?.trim();
-      const basePrompt = buildSlotPrompt(selectedModel,garmentType,pose,refImages);
+      const logoNote = logoImage
+        ? "Place the uploaded THUGFIT logo (attached as the last reference image) small on the product — approx 5% of garment width, positioned on chest or left sleeve. Keep it clean and sharp."
+        : "If the reference product has a visible logo or brand text replicate it exactly. If no logo is visible in the reference add a very small subtle THUGFIT text on the chest area.";
+      if(logoImage){parts.push({inlineData:{mimeType:logoImage.mime,data:logoImage.data}});parts.push({text:"[THUGFIT LOGO — place this small on the garment]"});}
+      const basePrompt = buildSlotPrompt(selectedModel,garmentType,pose,refImages,logoNote);
       const fullPrompt = comment
         ? basePrompt + `\n\nSPECIFIC CHANGE REQUESTED FOR THIS REGENERATION:\n"${comment}"\nApply this specific instruction while keeping everything else identical.`
         : basePrompt;
@@ -752,6 +760,25 @@ export default function App() {
       saveImageToGallery(processed,{modelName:selectedModel?.name,modelTag:selectedModel?.tag,garmentType,poseName:slot.pose.name,gender});
     } catch(e) {
       setSlots(prev=>prev.map((s,i)=>i===idx?{...s,status:"done",error:null}:s));
+    }
+  };
+
+  const runDiagnostic = async () => {
+    if(!geminiKey){ setDiagStatus("error"); setDiagMsg("No Gemini API key set. Add it in the key field above."); return; }
+    setDiagStatus("testing"); setDiagMsg("Testing Gemini connection...");
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({contents:[{parts:[{text:"Reply with exactly: OK"}]}],generationConfig:{responseModalities:["TEXT"]}}),
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.error?.message||`HTTP ${res.status}`);
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+      setDiagStatus("ok");
+      setDiagMsg(`Gemini connected ✓  Model: ${GEMINI_MODEL}  Reply: "${reply.trim()}"`);
+    } catch(e) {
+      setDiagStatus("error");
+      setDiagMsg("Error: "+e.message);
     }
   };
 
@@ -920,6 +947,25 @@ export default function App() {
             {refImages.front&&!refImages.back&&<div style={{fontSize:10,color:"#a06020",background:"#1a1500",border:"1px solid #2a2000",borderRadius:5,padding:"5px 9px",marginTop:5}}>💡 Add Back photo for accurate Back View pose</div>}
           </div>
 
+          {/* THUGFIT Logo Upload */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>① Logo (Optional)</div>
+            <div style={{border:"1.5px dashed",borderColor:logoImage?"#7c3aed60":"#1a1a2e",borderRadius:7,padding:logoImage?0:12,textAlign:"center",cursor:"pointer",background:"#0d0d16",overflow:"hidden",minHeight:56,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}
+              onClick={()=>document.getElementById("logo-upload-input")?.click()}
+              onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f){const r=new FileReader();r.onload=ev=>{const d=ev.target.result;setLogoImage({data:d.split(",")[1],mime:f.type,preview:d});};r.readAsDataURL(f);}}}
+              onDragOver={e=>e.preventDefault()}>
+              {logoImage
+                ? <div style={{position:"relative",width:"100%",display:"flex",alignItems:"center",gap:8,padding:"6px 10px"}}>
+                    <img src={logoImage.preview} style={{height:36,objectFit:"contain",borderRadius:4,background:"#fff",padding:2}} alt="logo"/>
+                    <div style={{flex:1,fontSize:10,color:"#a78bfa"}}>Logo uploaded ✓</div>
+                    <button onClick={e=>{e.stopPropagation();setLogoImage(null);}} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12}}>✕</button>
+                  </div>
+                : <><div style={{fontSize:16,marginBottom:2}}>🏷</div><div style={{color:"#2a2a40",fontSize:9}}>Drop THUGFIT logo here</div><div style={{color:"#1a1a2e",fontSize:8,marginTop:2}}>PNG with transparency preferred</div></>}
+            </div>
+            <input id="logo-upload-input" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>{const d=ev.target.result;setLogoImage({data:d.split(",")[1],mime:f.type,preview:d});};r.readAsDataURL(f);}}}/>
+            <div style={{fontSize:9,color:"#2a2a40",marginTop:4}}>If uploaded, logo is placed small on the garment. If not uploaded, THUGFIT text is added automatically.</div>
+          </div>
+
           {/* Garment */}
           <div>
             <div style={{fontSize:10,fontWeight:700,color:"#3a3a5c",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>② Garment Type</div>
@@ -978,6 +1024,14 @@ export default function App() {
 
           {/* Checklist */}
           {mode==="model"&&!canGenerate&&<div style={{background:"#0d0d14",border:"1px solid #1a1a2e",borderRadius:7,padding:"9px 11px"}}>
+            {/* Diagnostic test */}
+            <div style={{marginBottom:8}}>
+              <button onClick={runDiagnostic} disabled={diagStatus==="testing"}
+                style={{width:"100%",padding:"7px 0",borderRadius:6,border:"1px solid #1a1a2e",background:diagStatus==="ok"?"#052e16":diagStatus==="error"?"#1a0505":"#0d0d16",color:diagStatus==="ok"?"#4ade80":diagStatus==="error"?"#f87171":"#3a3a5c",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>
+                {diagStatus==="testing"?"⏳ Testing...":diagStatus==="ok"?"✓ Gemini OK — Test Again":diagStatus==="error"?"✕ Test Failed — Retry":"⚡ Test Gemini Connection"}
+              </button>
+              {diagMsg&&<div style={{marginTop:4,fontSize:9,color:diagStatus==="ok"?"#4ade80":"#f87171",lineHeight:1.5,wordBreak:"break-all"}}>{diagMsg}</div>}
+            </div>
             {[[!!geminiKey,"Gemini API key"],[!!refImages.front,"Front product photo"],[!!selectedModel,"Model selected"]].map(([ok,l])=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,fontSize:11,color:ok?"#4ade80":"#2a2a40"}}><span>{ok?"✓":"○"}</span>{l}</div>
             ))}
