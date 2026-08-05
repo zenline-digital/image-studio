@@ -276,7 +276,7 @@ function buildThumbPrompt(m) {
   return `Professional fitness model portrait. ${m.desc}. Wearing plain white fitted athletic top. Waist-up shot looking directly at camera. Pure white background. Even studio lighting. High quality commercial photography. No text, no watermarks.`;
 }
 
-function buildSlotPrompt(model, garmentType, pose, imgs, logoNote="") {
+function buildSlotPrompt(model, garmentType, pose, imgs, logoNote) {
   const hasBack=!!imgs.back, hasSide=!!imgs.side, hasDetail=!!imgs.detail;
   const poseRef = pose.id==="back_view"
     ? (hasBack?"Use REFERENCE IMAGE 2 (BACK VIEW) for the back of the garment.":"No back photo — infer back design from the front.")
@@ -286,48 +286,58 @@ function buildSlotPrompt(model, garmentType, pose, imgs, logoNote="") {
         ? (hasDetail?"Use the DETAIL/CLOSE-UP reference for fabric texture.":"Use whichever reference shows fabric texture best.")
         : "Use REFERENCE IMAGE 1 (FRONT VIEW) for the front of the garment.";
 
-  return `BACKGROUND: PURE WHITE #FFFFFF — this is the most important requirement.
-The output image must have a completely flat, pure white background with zero colour, zero tint, zero gradient, zero shadow. White like a professional seamless paper backdrop in a photo studio.
-IMPORTANT: The reference photos attached may have coloured, grey, or gradient backgrounds. Ignore those backgrounds entirely — they are irrelevant. The output background is always pure white #FFFFFF.
+  const logoInstruction = logoNote
+    ? "• LOGO: " + logoNote
+    : "• LOGO: If the reference product has a visible logo or brand text, replicate it exactly. If no logo is visible in the reference, add a very small THUGFIT text (approx 4% of garment width) on the chest or left sleeve — subtle and clean.";
 
-───────────────────────────────────────
-TASK: Create a professional activewear product photo.
-───────────────────────────────────────
+  const finalCheck = logoNote
+    ? "\n✓ Logo placed as instructed: " + logoNote
+    : "";
 
-STEP 1 — READ THE GARMENT FROM THE REFERENCE IMAGES:
-The attached photos show a ${garmentType}. Study only the garment:
-• Exact colours and colour placement
-• Exact logo, branding, text, prints — replicate precisely
-${logoNote ? `• LOGO INSTRUCTION: ${logoNote}` : "• If the reference product has a logo or brand text, replicate it precisely. If no logo is visible in the reference, add a very small THUGFIT text logo (subtle, small, around 4% of garment width) on the chest or left sleeve area."}
-• Exact cut: neckline, strap width, sleeve length, hem shape, waistband
-• Exact fabric: texture, sheen, mesh panels, ribbing, seams, stitching
-• Exact fit and proportions
-${poseRef}
-
-STEP 2 — IGNORE EVERYTHING ELSE IN THE REFERENCE:
-• Ignore the background in the reference photos
-• Ignore the model/person in the reference photos
-• Ignore the lighting setup in the reference photos
-Only the garment details matter.
-
-STEP 3 — GENERATE THE PHOTO:
-Model: ${model.desc}
-This model is completely different from any person in the reference photos.
-
-Garment: The exact ${garmentType} from Step 1 — identical colours, logo, cut, fabric. Unchanged.
-
-Pose: ${pose.name} — ${pose.desc}
-
-Output requirements:
-• Background: PURE WHITE #FFFFFF — flat, no shadow, no tint, no gradient
-• Lighting: even professional studio softbox — correct exposure, natural skin tones, not overexposed
-• Composition: full body or 3/4 shot, complete garment visible, model centred
-• Quality: sharp, clean, commercial catalogue standard
-
-FINAL CHECK — before generating, confirm:
-✓ Background is pure white #FFFFFF (not pink, not cream, not grey, not gradient)
-✓ Model matches: ${model.desc.split(",").slice(0,3).join(",")}
-✓ Garment is identical to the reference images${logoNote ? `\n✓ ${logoNote}` : ""}\`;
+  return "BACKGROUND: PURE WHITE #FFFFFF — this is the most important requirement.\n"
+    + "The output image must have a completely flat, pure white background with zero colour, zero tint, zero gradient, zero shadow. White like a professional seamless paper backdrop in a photo studio.\n"
+    + "IMPORTANT: The reference photos attached may have coloured, grey, or gradient backgrounds. Ignore those backgrounds entirely — they are irrelevant. The output background is always pure white #FFFFFF.\n"
+    + "\n"
+    + "───────────────────────────────────────\n"
+    + "TASK: Create a professional activewear product photo.\n"
+    + "───────────────────────────────────────\n"
+    + "\n"
+    + "STEP 1 — READ THE GARMENT FROM THE REFERENCE IMAGES:\n"
+    + "The attached photos show a " + garmentType + ". Study only the garment:\n"
+    + "• Exact colours and colour placement\n"
+    + "• Exact logo, branding, text, prints — replicate precisely\n"
+    + logoInstruction + "\n"
+    + "• Exact cut: neckline, strap width, sleeve length, hem shape, waistband\n"
+    + "• Exact fabric: texture, sheen, mesh panels, ribbing, seams, stitching\n"
+    + "• Exact fit and proportions\n"
+    + poseRef + "\n"
+    + "\n"
+    + "STEP 2 — IGNORE EVERYTHING ELSE IN THE REFERENCE:\n"
+    + "• Ignore the background in the reference photos\n"
+    + "• Ignore the model/person in the reference photos\n"
+    + "• Ignore the lighting setup in the reference photos\n"
+    + "Only the garment details matter.\n"
+    + "\n"
+    + "STEP 3 — GENERATE THE PHOTO:\n"
+    + "Model: " + model.desc + "\n"
+    + "This model is completely different from any person in the reference photos.\n"
+    + "\n"
+    + "Garment: The exact " + garmentType + " from Step 1 — identical colours, logo, cut, fabric. Unchanged.\n"
+    + "\n"
+    + "Pose: " + pose.name + " — " + pose.desc + "\n"
+    + "\n"
+    + "Output requirements:\n"
+    + "• FULL BODY VISIBLE: ensure the complete model from head to toe (or at minimum full garment) is in frame — do NOT crop any part of the model\n"
+    + "• Background: PURE WHITE #FFFFFF — flat, no shadow, no tint, no gradient\n"
+    + "• Lighting: even professional studio softbox — correct exposure, natural skin tones, not overexposed\n"
+    + "• Composition: full body shot, complete garment fully visible, model centred in frame\n"
+    + "• Quality: sharp, clean, commercial catalogue standard\n"
+    + "\n"
+    + "FINAL CHECK — before generating, confirm:\n"
+    + "✓ Background is pure white #FFFFFF (not pink, not cream, not grey, not gradient)\n"
+    + "✓ Full model body visible — no cropping at head or feet\n"
+    + "✓ Model matches: " + model.desc.split(",").slice(0,3).join(",") + "\n"
+    + "✓ Garment is identical to the reference images" + finalCheck;
 }
 
 // ═══════════════════════════════════════════════════
